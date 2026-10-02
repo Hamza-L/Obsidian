@@ -50,7 +50,7 @@ else
 Q := @
 endif
 
-CFLAGS := -std=c23 -g -DDEBUG -Wall -Wextra -Wpedantic -Werror -DTESTING_ENABLED=$(TESTING_ENABLED)
+CFLAGS := -std=c99 -g -DDEBUG -Wall -Wextra -Wpedantic -Werror -DTESTING_ENABLED=$(TESTING_ENABLED)
 CFLAGS += -Iexternal
 OBJCFLAGS := -fobjc-arc
 LDFLAGS :=
@@ -63,6 +63,7 @@ endif
 
 # Platform-independent sources (platform makefiles append platform-specific ones).
 SRC_C := src/main.c
+SRC_C += src/memory/m_alloc.c
 SRC_M :=
 
 # Test sources (only compiled when TESTING_ENABLED=1)
