@@ -154,7 +154,7 @@ FREETYPE_SRC_DIR := external/freetype-src
 FREETYPE_BUILD_DIR := external/freetype-build
 FREETYPE_DIR := external/freetype
 FREETYPE_INCLUDE_DIR := $(FREETYPE_DIR)/include/freetype2
-FREETYPE_LIB := $(FREETYPE_DIR)/lib/freetyped.lib
+FREETYPE_LIB := $(FREETYPE_BUILD_DIR)/Debug/freetyped.lib
 FREETYPE_TARBALL := external/deps/freetype-$(FREETYPE_VERSION).tar.gz
 FREETYPE_URL := https://download.savannah.gnu.org/releases/freetype/freetype-$(FREETYPE_VERSION).tar.gz
 
