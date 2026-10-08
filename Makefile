@@ -65,6 +65,7 @@ endif
 # Platform-independent sources (platform makefiles append platform-specific ones).
 SRC_C := src/main.c
 SRC_C += src/memory/m_alloc.c
+SRC_C += src/log/l_log.c
 SRC_M :=
 
 # Test sources (only compiled when TESTING_ENABLED=1)
