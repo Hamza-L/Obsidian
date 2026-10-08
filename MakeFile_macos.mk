@@ -1,8 +1,8 @@
 # Cocoa/Metal frameworks and Objective-C come with Xcode Command Line Tools.
 $(call require_probe,Xcode Command Line Tools,xcode-select -p,/,Install with: xcode-select --install)
 
-SRC_M += src/platform/macos/window_macos.m
-SRC_M += src/renderer/metal/ne_renderer_metal.m
+SRC_M += src/platform/macos/p_window.m
+# SRC_M += src/platform/macos/p_renderer.m
 
 SRC_C += src/memory/m_alloc_macos.c
 
