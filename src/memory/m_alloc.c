@@ -1,9 +1,9 @@
 #include "o_memory.h"
 
 #include "m_alloc_internal.h"
+#include "o_log.h"
 
 #include <string.h>
-#include <stdio.h>
 
 typedef struct {
     uint32_t slot_size;
@@ -46,7 +46,7 @@ MHandle memory_pool_item_acquire(MPool pool_) {
     if (pool->is_out_of_mem) return MHANDLE_INVALID;
 
     if (pool->count >= pool->capacity) {
-        size_t newcap = pool->capacity*2;
+        size_t newcap = pool->capacity*MEM_SCALING_FACTOR;
         void *data = m_realloc(pool->data, newcap * pool->slot_size);
         if(data) pool->data = data;
         uint32_t *entries = m_realloc(pool->freelist.entries, newcap * sizeof(uint32_t));
@@ -55,7 +55,7 @@ MHandle memory_pool_item_acquire(MPool pool_) {
         if(generation) pool->generation = generation;
 
         if(!data || !entries || !generation){
-            fprintf(stderr, "OUT OF MEMORY\n");
+            LOG_ERROR("pool out of memory growing to %zu slots of %u bytes", newcap, pool->slot_size);
             pool->is_out_of_mem = true;
             return MHANDLE_INVALID;
         } else {
@@ -85,8 +85,8 @@ void memory_pool_item_remove(MPool pool_, MHandle handle) {
 
 void *memory_pool_item_get(MPool pool_, MHandle handle) {
     MPool_* pool = (MPool_*)pool_;
-    if(handle.index == 0){//NULL HANDLE
-        fprintf(stderr, "MHandle is null\n");
+    if (handle.index == 0) {
+        LOG_DEBUG("lookup with null handle");
         return NULL;
     }
     if (pool->generation[handle.index - 1] == handle.age) {

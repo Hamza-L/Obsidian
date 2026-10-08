@@ -1,3 +1,7 @@
+#ifndef O_MEMORY_H
+#define O_MEMORY_H
+
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -15,3 +19,5 @@ void* memory_pool_item_get(MPool pool, MHandle handle);
 bool memory_pool_is_oom(MPool pool);
 
 // void* array_alloc(const size_t item_size);
+
+#endif //O_MEMORY_H
