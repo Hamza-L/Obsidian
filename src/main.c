@@ -1,6 +1,8 @@
+#include "o_log.h"
+#include "o_memory.h"
+
 #include <stdio.h>
 #include <stdint.h>
-#include "o_memory.h"
 #include <stdlib.h>
 #include <time.h>
 
