@@ -3,6 +3,7 @@
 CC := clang
 LD := clang
 OBJC := clang
+ASAN := 0
 
 # Public target name (what users type): no extension, consistent across platforms.
 APP_NAME := Obsidian

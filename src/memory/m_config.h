@@ -1,1 +1,0 @@
-#define INIT_POOL_SLOT_COUNT 16

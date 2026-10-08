@@ -42,6 +42,7 @@ $(call require_probe,Visual Studio 2022,"$(VSWHERE)" -latest -property installat
 # SRC_C += src/renderer/vulkan/ne_swapchain_dxgi.c
 
 # internal
+SRC_C += src/memory/m_alloc_win32.c
 # SRC_C += src/renderer/vulkan/internal/ne_vulkan_renderer.c
 # SRC_C += src/renderer/vulkan/internal/ne_vulkan_buffers.c
 # SRC_C += src/renderer/vulkan/internal/ne_vulkan_images.c
@@ -62,7 +63,8 @@ LD := clang-cl
 # --- Link flags -----------------------------------------------------------
 # clang-cl link line: <objs> -o <out> <LDFLAGS> <LDLIBS>. -link is the last
 # LDFLAGS entry so everything in LDLIBS is forwarded to the MSVC linker.
-LDFLAGS += -Z7 -MDd
+LDFLAGS += -Z7
+LDFLAGS += -MDd
 LDFLAGS += -link
 
 LDLIBS += user32.lib
