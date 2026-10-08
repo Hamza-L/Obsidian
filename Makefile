@@ -26,17 +26,7 @@ else
 EXE_EXT :=
 endif
 
-# Determine if this is a test build based on MAKECMDGOALS
-ifeq ($(filter test,$(MAKECMDGOALS)),test)
-BUILD_DIR := build/test
-BUILD_MODE := test
-TESTING_ENABLED := 1
-else
 BUILD_DIR := build
-BUILD_MODE := normal
-TESTING_ENABLED := 0
-endif
-
 OUTPUT := $(BUILD_DIR)/$(APP_NAME)$(EXE_EXT)
 TEST_OUTPUT := $(BUILD_DIR)/$(APP_NAME)_test$(EXE_EXT)
 
@@ -51,7 +41,7 @@ else
 Q := @
 endif
 
-CFLAGS := -std=c99 -g -DDEBUG -Wall -Wextra -Wpedantic -Werror -DTESTING_ENABLED=$(TESTING_ENABLED)
+CFLAGS := -std=c99 -g -DDEBUG -Wall -Wextra -Wpedantic -Werror
 CFLAGS += -Iexternal
 OBJCFLAGS := -fobjc-arc
 LDFLAGS :=
@@ -69,10 +59,8 @@ SRC_C += src/file/f_file.c
 SRC_C += src/log/l_log.c
 SRC_M :=
 
-# Test sources (only compiled when TESTING_ENABLED=1)
-ifeq ($(TESTING_ENABLED),1)
-SRC_C += src/test/test.c
-endif
+# One test file per public header, plus the runner.
+TEST_SRC_C := $(wildcard test/*.c)
 
 # Platform makefiles can append to this to force prerequisites before any
 # object is compiled (e.g. downloaded headers).
@@ -130,7 +118,11 @@ OBJ_C := $(SRC_C:%.c=$(BUILD_DIR)/%.$(OBJ_EXT))
 OBJ_M := $(SRC_M:%.m=$(BUILD_DIR)/%.$(OBJ_EXT))
 OBJS := $(OBJ_C) $(OBJ_M)
 
-DEPS := $(OBJS:.$(OBJ_EXT)=.d)
+# Tests link against every module object except the app entry point.
+MODULE_OBJS := $(filter-out $(BUILD_DIR)/src/main.$(OBJ_EXT),$(OBJS))
+TEST_OBJS := $(TEST_SRC_C:%.c=$(BUILD_DIR)/%.$(OBJ_EXT))
+
+DEPS := $(OBJS:.$(OBJ_EXT)=.d) $(TEST_OBJS:.$(OBJ_EXT)=.d)
 
 # Automatically include generated dependency files (if present).
 -include $(DEPS)
@@ -146,10 +138,13 @@ deps: $(EXTRA_OBJECT_DEPS)
 # builds the actual output file (with .exe on Windows).
 all: $(APP_NAME)
 
-# Test build target:
-#   make test
-# builds with TESTING_ENABLED=1 and test sources included.
-test: $(APP_NAME)
+# `make test` builds and runs the module test suite.
+test: $(TEST_OUTPUT)
+	@$(TEST_OUTPUT)
+
+$(TEST_OUTPUT): $(BUILD_DIR) $(MODULE_OBJS) $(TEST_OBJS)
+	@echo LINK $(TEST_OUTPUT)
+	$(Q)$(LD) $(MODULE_OBJS) $(TEST_OBJS) -o $(TEST_OUTPUT) $(LDFLAGS) $(LDLIBS)
 
 # User-facing target without extension.
 $(APP_NAME): $(OUTPUT)
