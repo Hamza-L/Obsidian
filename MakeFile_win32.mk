@@ -36,7 +36,7 @@ VSWHERE := C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe
 $(call require_probe,Visual Studio 2022,"$(VSWHERE)" -latest -property installationPath,Microsoft Visual Studio,Install Visual Studio 2022 (any edition) or "Build Tools for Visual Studio 2022"$(comma) and select the "Desktop development with C++" workload.)
 
 # --- Sources --------------------------------------------------------------
-# SRC_C += src/platform/win32/window_win32.c
+SRC_C += src/platform/win32/p_window.c
 # SRC_C += src/renderer/vulkan/ne_renderer_vulkan.c
 # SRC_C += src/renderer/vulkan/ne_swapchain_vulkan_wsi.c
 # SRC_C += src/renderer/vulkan/ne_swapchain_dxgi.c
