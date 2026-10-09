@@ -9,13 +9,13 @@
 // Commands execute in submission order; the renderer inserts synchronization and layout transitions.
 //
 // Shader contract:
-//   Shaders are native binaries: SPIR-V on Vulkan, metallib on Metal.
-//   Resource table, set 0 on Vulkan and buffer(0) on Metal:
+//   Shaders are native binaries: SPIR-V on Vulkan, metallib on Metal, WGSL on WebGPU.
+//   Resource table, set 0 on Vulkan and WebGPU, buffer(0) on Metal:
 //     binding 0  images[]    indexed by OImage.index, declared with the texture type matching the image
 //     binding 1  samplers[]  indexed by OSampler
+//     binding 2  buffers[]   indexed by OBuffer.index, byte offsets are passed alongside in constants
 //   Constants: push constants on Vulkan, buffer(1) on Metal, at most O_MAX_CONSTANTS_SIZE bytes.
-//   Buffers are reached through gpu addresses stored in constants (renderer_buffer_address).
-//   Vertex shaders pull their vertices with vertex_id; there is no vertex input layout.
+//   Vertex shaders pull their vertices from buffers[] with vertex_id; there is no vertex input layout.
 //   Clip space is +Y up with depth 0..1, image origin is top-left, front faces are counter-clockwise.
 
 typedef struct ORenderer ORenderer;
@@ -161,7 +161,6 @@ typedef struct OAllocation {
     OBuffer buffer;
     uint64_t offset;
     void *data;
-    uint64_t gpu_address;
 } OAllocation;
 
 typedef struct ORect {
@@ -226,7 +225,7 @@ void renderer_surface_resize(ORenderer *renderer, OSurface surface, uint32_t wid
 OBuffer renderer_buffer_create(ORenderer *renderer, const OBufferDesc *desc);
 void renderer_buffer_destroy(ORenderer *renderer, OBuffer buffer);
 void *renderer_buffer_map(ORenderer *renderer, OBuffer buffer);
-uint64_t renderer_buffer_address(ORenderer *renderer, OBuffer buffer);
+void renderer_buffer_unmap(ORenderer *renderer, OBuffer buffer);
 
 OImage renderer_image_create(ORenderer *renderer, const OImageDesc *desc);
 void renderer_image_destroy(ORenderer *renderer, OImage image);
