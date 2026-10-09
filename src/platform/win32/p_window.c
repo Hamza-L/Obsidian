@@ -105,6 +105,14 @@ static LRESULT hit_test_resize_border(HWND hwnd, LPARAM lparam) {
     return hits[row][col];
 }
 
+static void set_content_size(HWND hwnd, int32_t width, int32_t height) {
+    RECT r = {0, 0, width, height};
+    const DWORD style = (DWORD)GetWindowLongPtrW(hwnd, GWL_STYLE);
+    const DWORD ex_style = (DWORD)GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+    AdjustWindowRectExForDpi(&r, style, FALSE, ex_style, GetDpiForWindow(hwnd));
+    SetWindowPos(hwnd, NULL, 0, 0, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOMOVE | SWP_NOACTIVATE);
+}
+
 static void emit_text_input(OWindow *w, uint16_t c) {
     if (c >= 0xD800 && c <= 0xDBFF) {
         w->pending_high_surrogate = c;
@@ -268,19 +276,17 @@ OWindow *window_create(const OWindowDesc *desc) {
     if (!desc->undecorated) style |= WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
     if (desc->resizable) style |= WS_THICKFRAME;
 
-    RECT r = {0, 0, desc->width, desc->height};
-    AdjustWindowRect(&r, style, FALSE);
-
     wchar_t title[256];
     to_wide(desc->title, title, 256);
 
     HWND hwnd = CreateWindowExW(WS_EX_APPWINDOW, WINDOW_CLASS_NAME, title, style, desc->x, desc->y,
-                                r.right - r.left, r.bottom - r.top, NULL, NULL, g_app.hinstance, window);
+                                desc->width, desc->height, NULL, NULL, g_app.hinstance, window);
     if (!hwnd) {
         LOG_ERROR("CreateWindowExW failed: %lu", GetLastError());
         free(window);
         return NULL;
     }
+    set_content_size(hwnd, desc->width, desc->height);
 
     BOOL dark = TRUE;
     DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof dark);
@@ -337,10 +343,7 @@ void window_set_position(OWindow *window, int32_t x, int32_t y) {
 }
 
 void window_set_size(OWindow *window, int32_t width, int32_t height) {
-    if (!window || !window->hwnd || width <= 0 || height <= 0) return;
-    RECT r = {0, 0, width, height};
-    AdjustWindowRect(&r, (DWORD)GetWindowLongPtrW(window->hwnd, GWL_STYLE), FALSE);
-    SetWindowPos(window->hwnd, NULL, 0, 0, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOMOVE | SWP_NOACTIVATE);
+    if (window && window->hwnd && width > 0 && height > 0) set_content_size(window->hwnd, width, height);
 }
 
 void window_set_callbacks(OWindow *window, const OWindowCallbacks *callbacks, void *user_data) {

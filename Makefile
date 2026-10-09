@@ -70,6 +70,7 @@ EXTRA_OBJECT_DEPS :=
 OBJ_EXT := o
 mkdir_p = mkdir -p "$(1)"
 rmdir_rf = rm -rf "$(1)"
+run = "$(1)"
 
 # --- Dependencies: stb_image (single-header) ------------------------------
 STB_IMAGE_COMMIT ?= 013ac3beddff3dbffafd5177e7972067cd2b5083
@@ -140,7 +141,7 @@ all: $(APP_NAME)
 
 # `make test` builds and runs the module test suite.
 test: $(TEST_OUTPUT)
-	@$(TEST_OUTPUT)
+	@$(call run,$(TEST_OUTPUT))
 
 $(TEST_OUTPUT): $(BUILD_DIR) $(MODULE_OBJS) $(TEST_OBJS)
 	@echo LINK $(TEST_OUTPUT)

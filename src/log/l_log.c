@@ -25,7 +25,7 @@ void log_set_sinks(OLogSinks sinks) {
 
 bool log_open_file(const char *path) {
     log_close_file();
-    g_log.file = path ? fopen(path, "w") : NULL;
+    g_log.file = path ? fopen(path, "wb") : NULL;
     if (!g_log.file) return false;
     g_log.sinks |= O_LOG_SINK_FILE;
     return true;

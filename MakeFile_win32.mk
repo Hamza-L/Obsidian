@@ -10,6 +10,7 @@ SHELL := cmd.exe
 .SHELLFLAGS := /C
 mkdir_p = if not exist "$(subst /,\,$(patsubst %/,%,$(1)))" mkdir "$(subst /,\,$(patsubst %/,%,$(1)))"
 rmdir_rf = if exist "$(subst /,\,$(patsubst %/,%,$(1)))" rmdir /s /q "$(subst /,\,$(patsubst %/,%,$(1)))"
+run = "$(subst /,\,$(1))"
 endif
 
 # MSVC tools (link.exe, MSBuild) write scratch files under %TMP%. Under an
