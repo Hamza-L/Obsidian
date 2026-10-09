@@ -90,7 +90,7 @@ void *memory_pool_item_get(MPool pool_, MHandle handle) {
         return NULL;
     }
     if (pool->generation[handle.index - 1] == handle.age) {
-        return &pool->data[handle.index - 1];
+        return &pool->data[(handle.index - 1) * pool->slot_size];
     }
     return NULL;
 }

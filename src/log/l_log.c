@@ -69,7 +69,7 @@ void log_write(OLogLevel level, const char *file, int line, const char *fmt, ...
     struct tm *t = localtime(&now);
     int hour = t ? t->tm_hour : 0, min = t ? t->tm_min : 0, sec = t ? t->tm_sec : 0;
 
-    int n = snprintf(buffer, sizeof buffer, "%02d:%02d:%02d %s %s:%d  ", hour, min, sec, k_level_names[level],
+    int n = snprintf(buffer, sizeof buffer, "[%02d:%02d:%02d %s %s:%d] ", hour, min, sec, k_level_names[level],
                      basename_of(file), line);
     if (n < 0) n = 0;
     size_t len = (size_t)n > max_len ? max_len : (size_t)n;
