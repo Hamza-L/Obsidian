@@ -60,20 +60,20 @@ CFLAGS += -Isrc/renderer/vulkan
 SHADERS_DIR := $(BUILD_DIR)/shaders
 
 # --- Toolchain ------------------------------------------------------------
-LD := clang-cl
+LD := clang
 
 # --- Link flags -----------------------------------------------------------
 # clang-cl link line: <objs> -o <out> <LDFLAGS> <LDLIBS>. -link is the last
 # LDFLAGS entry so everything in LDLIBS is forwarded to the MSVC linker.
-LDFLAGS += -Z7
-LDFLAGS += -MDd
-LDFLAGS += -link
+LDFLAGS += -g
 
-LDLIBS += user32.lib
-LDLIBS += gdi32.lib
-LDLIBS += dwmapi.lib
-LDLIBS += d3d11.lib
-LDLIBS += dxgi.lib
+LDLIBS += -luser32.lib
+LDLIBS += -lgdi32.lib
+LDLIBS += -ldwmapi.lib
+LDLIBS += -ld3d11.lib
+LDLIBS += -ldxgi.lib
+LDLIBS += -Wl,-nodefaultlib:libcmt.lib
+LDLIBS += -Wl,-nodefaultlib:libcmtd.lib
 
 ifeq ($(ASAN),1)
 LDLIBS += clang_rt.asan-x86_64.lib
