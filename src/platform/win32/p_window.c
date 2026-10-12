@@ -11,6 +11,8 @@
 
 #define WINDOW_CLASS_NAME L"ObsidianWindow"
 #define RESIZE_BORDER 8
+#define MAX_TITLE_LEN 64
+#define TITLEBAR_HEIGHT 28
 
 static struct {
     HINSTANCE hinstance;
@@ -19,16 +21,19 @@ static struct {
     OWindow *windows;
 } g_app;
 
+typedef struct {
+    const char title[MAX_TITLE_LEN];
+    uint32_t height;
+} OTitleBar;
+
 struct OWindow {
     HWND hwnd;
     OWindowCallbacks callbacks;
+    OTitleBar titlebar;
+    bool resizeable;
+    bool open;
+
     void *user_data;
-    bool resizable_undecorated;
-
-    float last_mouse_x, last_mouse_y;
-    bool has_last_mouse;
-    uint16_t pending_high_surrogate;
-
     OWindow *next;
 };
 
@@ -36,61 +41,7 @@ static void to_wide(const char *utf8, wchar_t *out, int cap) {
     if (!utf8 || MultiByteToWideChar(CP_UTF8, 0, utf8, -1, out, cap) <= 0) out[0] = 0;
 }
 
-static OModKeys get_modifiers(void) {
-    OModKeys mods = 0;
-    if (GetKeyState(VK_SHIFT) & 0x8000) mods |= O_MOD_SHIFT;
-    if (GetKeyState(VK_CONTROL) & 0x8000) mods |= O_MOD_CONTROL;
-    if (GetKeyState(VK_MENU) & 0x8000) mods |= O_MOD_ALT;
-    if ((GetKeyState(VK_LWIN) | GetKeyState(VK_RWIN)) & 0x8000) mods |= O_MOD_SUPER;
-    if (GetKeyState(VK_CAPITAL) & 0x0001) mods |= O_MOD_CAPS_LOCK;
-    return mods;
-}
-
-static OKey map_key(WPARAM vk) {
-    if (vk >= 'A' && vk <= 'Z') return (OKey)(O_KEY_A + (vk - 'A'));
-    if (vk >= '0' && vk <= '9') return (OKey)(O_KEY_0 + (vk - '0'));
-    switch (vk) {
-    case VK_ESCAPE: return O_KEY_ESCAPE;
-    case VK_RETURN: return O_KEY_ENTER;
-    case VK_TAB: return O_KEY_TAB;
-    case VK_BACK: return O_KEY_BACKSPACE;
-    case VK_SPACE: return O_KEY_SPACE;
-    case VK_LEFT: return O_KEY_LEFT;
-    case VK_RIGHT: return O_KEY_RIGHT;
-    case VK_UP: return O_KEY_UP;
-    case VK_DOWN: return O_KEY_DOWN;
-    default: return O_KEY_UNKNOWN;
-    }
-}
-
-static OMouseButton map_mouse_button(UINT msg) {
-    switch (msg) {
-    case WM_LBUTTONDOWN: case WM_LBUTTONUP: return O_MOUSE_BUTTON_LEFT;
-    case WM_RBUTTONDOWN: case WM_RBUTTONUP: return O_MOUSE_BUTTON_RIGHT;
-    case WM_MBUTTONDOWN: case WM_MBUTTONUP: return O_MOUSE_BUTTON_MIDDLE;
-    default: return O_MOUSE_BUTTON_OTHER;
-    }
-}
-
-static OKeyEvent make_key_event(WPARAM wparam, LPARAM lparam, bool down) {
-    return (OKeyEvent){
-        .key = map_key(wparam),
-        .modifiers = get_modifiers(),
-        .native_key_code = (uint16_t)((lparam >> 16) & 0xFF),
-        .is_repeat = down && (lparam & (1 << 30)),
-    };
-}
-
-static OMouseButtonEvent make_mouse_button_event(UINT msg, LPARAM lparam) {
-    return (OMouseButtonEvent){
-        .button = map_mouse_button(msg),
-        .modifiers = get_modifiers(),
-        .x = (float)GET_X_LPARAM(lparam),
-        .y = (float)GET_Y_LPARAM(lparam),
-    };
-}
-
-static LRESULT hit_test_resize_border(HWND hwnd, LPARAM lparam) {
+LRESULT hit_test_resize_border(HWND hwnd, LPARAM lparam) {
     static const LRESULT hits[3][3] = {
         {HTTOPLEFT, HTTOP, HTTOPRIGHT},
         {HTLEFT, HTCLIENT, HTRIGHT},
@@ -113,116 +64,52 @@ static void set_content_size(HWND hwnd, int32_t width, int32_t height) {
     SetWindowPos(hwnd, NULL, 0, 0, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOMOVE | SWP_NOACTIVATE);
 }
 
-static void emit_text_input(OWindow *w, uint16_t c) {
-    if (c >= 0xD800 && c <= 0xDBFF) {
-        w->pending_high_surrogate = c;
-        return;
-    }
-    uint32_t cp = c;
-    if (c >= 0xDC00 && c <= 0xDFFF && w->pending_high_surrogate) {
-        cp = 0x10000u + (((uint32_t)w->pending_high_surrogate - 0xD800u) << 10) + (c - 0xDC00u);
-    }
-    w->pending_high_surrogate = 0;
-    if (cp < 0x20 || cp == 0x7F) return;
-    if (w->callbacks.on_text_input) w->callbacks.on_text_input(w, cp, w->user_data);
-}
-
 static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-    if (msg == WM_NCCREATE) {
+    OWindow *w = (OWindow *)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+
+    switch (msg) {
+    case WM_NCCREATE: {
         OWindow *w = ((CREATESTRUCTW *)lparam)->lpCreateParams;
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)w);
-        w->hwnd = hwnd;
+        if(w) w->hwnd = hwnd;
         g_app.window_count++;
         return DefWindowProcW(hwnd, msg, wparam, lparam);
     }
 
-    OWindow *w = (OWindow *)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
-    if (!w) return DefWindowProcW(hwnd, msg, wparam, lparam);
-
-    switch (msg) {
     case WM_CLOSE:
         DestroyWindow(hwnd);
         return 0;
 
+    case WM_PAINT:
+        return DefWindowProcW(hwnd, msg, wparam, lparam);
+
     case WM_DESTROY:
+        if (!w) return 0;
+        w->open = false;
         g_app.window_count--;
-        if (w->callbacks.on_close) w->callbacks.on_close(w, w->user_data);
+        if (w->callbacks.on_close) {
+            w->callbacks.on_close(w, w->user_data);
+        }
         return 0;
 
     case WM_NCDESTROY:
-        w->hwnd = NULL;
-        SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
-        break;
-
-    case WM_NCHITTEST:
-        if (!w->resizable_undecorated) break;
-        return hit_test_resize_border(hwnd, lparam);
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)0);
+        return DefWindowProcW(hwnd, msg, wparam, lparam);
 
     case WM_SIZE:
+        if (!w) return 0;
         if (w->callbacks.on_resize) w->callbacks.on_resize(w, LOWORD(lparam), HIWORD(lparam), w->user_data);
         if (w->callbacks.on_refresh) w->callbacks.on_refresh(w, w->user_data);
         return 0;
 
     case WM_MOVE:
+        if (!w) return 0;
         if (w->callbacks.on_move) w->callbacks.on_move(w, (int16_t)LOWORD(lparam), (int16_t)HIWORD(lparam), w->user_data);
         return 0;
 
-    case WM_KEYDOWN:
-    case WM_SYSKEYDOWN:
-        if (w->callbacks.on_key_down) w->callbacks.on_key_down(w, make_key_event(wparam, lparam, true), w->user_data);
-        return 0;
-
-    case WM_KEYUP:
-    case WM_SYSKEYUP:
-        if (w->callbacks.on_key_up) w->callbacks.on_key_up(w, make_key_event(wparam, lparam, false), w->user_data);
-        return 0;
-
-    case WM_CHAR:
-        emit_text_input(w, (uint16_t)wparam);
-        return 0;
-
-    case WM_MOUSEMOVE: {
-        const float x = (float)GET_X_LPARAM(lparam);
-        const float y = (float)GET_Y_LPARAM(lparam);
-        OMouseMoveEvent e = {
-            .x = x,
-            .y = y,
-            .delta_x = w->has_last_mouse ? x - w->last_mouse_x : 0.0f,
-            .delta_y = w->has_last_mouse ? y - w->last_mouse_y : 0.0f,
-        };
-        w->last_mouse_x = x;
-        w->last_mouse_y = y;
-        w->has_last_mouse = true;
-        if (w->callbacks.on_mouse_move) w->callbacks.on_mouse_move(w, e, w->user_data);
-        return 0;
+    default:
+        return DefWindowProcW(hwnd, msg, wparam, lparam);
     }
-
-    case WM_LBUTTONDOWN:
-    case WM_RBUTTONDOWN:
-    case WM_MBUTTONDOWN:
-    case WM_XBUTTONDOWN:
-        if (w->callbacks.on_mouse_down) w->callbacks.on_mouse_down(w, make_mouse_button_event(msg, lparam), w->user_data);
-        return msg == WM_XBUTTONDOWN;
-
-    case WM_LBUTTONUP:
-    case WM_RBUTTONUP:
-    case WM_MBUTTONUP:
-    case WM_XBUTTONUP:
-        if (w->callbacks.on_mouse_up) w->callbacks.on_mouse_up(w, make_mouse_button_event(msg, lparam), w->user_data);
-        return msg == WM_XBUTTONUP;
-
-    case WM_MOUSEWHEEL:
-    case WM_MOUSEHWHEEL: {
-        const float notches = (float)GET_WHEEL_DELTA_WPARAM(wparam) / WHEEL_DELTA;
-        OMouseScrollEvent e = {
-            .delta_x = msg == WM_MOUSEHWHEEL ? notches : 0.0f,
-            .delta_y = msg == WM_MOUSEWHEEL ? notches : 0.0f,
-        };
-        if (w->callbacks.on_mouse_scroll) w->callbacks.on_mouse_scroll(w, e, w->user_data);
-        return 0;
-    }
-    }
-    return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
 static bool app_init(void) {
@@ -237,9 +124,11 @@ static bool app_init(void) {
         .lpfnWndProc = wndproc,
         .hInstance = g_app.hinstance,
         .hCursor = LoadCursorW(NULL, IDC_ARROW),
+        .hbrBackground = NULL,
         .lpszClassName = WINDOW_CLASS_NAME,
     };
     g_app.initialized = RegisterClassExW(&wc) != 0;
+
     if (!g_app.initialized) LOG_ERROR("RegisterClassExW failed: %lu", GetLastError());
     return g_app.initialized;
 }
@@ -270,11 +159,17 @@ OWindow *window_create(const OWindowDesc *desc) {
         LOG_ERROR("window_create: out of memory");
         return NULL;
     }
-    window->resizable_undecorated = desc->undecorated && desc->resizable;
+
+    window->open = true;
+
+    memcpy((void*)window->titlebar.title, desc->title, min(strlen(desc->title), MAX_TITLE_LEN));
+    window->titlebar.height = TITLEBAR_HEIGHT;
 
     DWORD style = WS_POPUP;
-    if (!desc->undecorated) style |= WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
-    if (desc->resizable) style |= WS_THICKFRAME;
+    if (!desc->undecorated) {
+        style |= WS_CAPTION | WS_OVERLAPPED | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
+        if (desc->resizable) style |= WS_THICKFRAME;
+    }
 
     wchar_t title[256];
     to_wide(desc->title, title, 256);
@@ -290,14 +185,17 @@ OWindow *window_create(const OWindowDesc *desc) {
 
     BOOL dark = TRUE;
     DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof dark);
+
     if (desc->undecorated) {
         MARGINS margins = {-1, -1, -1, -1};
         DwmExtendFrameIntoClientArea(hwnd, &margins);
     }
-    if (desc->transparent) {
-        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, GetWindowLongPtrW(hwnd, GWL_EXSTYLE) | WS_EX_LAYERED);
-        SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
-    }
+
+    // NOTE(Hamza): doubt this is needed
+    // if (desc->transparent) {
+    //     SetWindowLongPtrW(hwnd, GWL_EXSTYLE, GetWindowLongPtrW(hwnd, GWL_EXSTYLE) | WS_EX_LAYERED);
+    //     SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
+    // }
 
     window->next = g_app.windows;
     g_app.windows = window;
@@ -333,6 +231,8 @@ void window_close(OWindow *window) {
 
 void window_set_title(OWindow *window, const char *title) {
     if (!window || !window->hwnd || !title) return;
+    memcpy((void*)window->titlebar.title, title, MAX_TITLE_LEN);
+
     wchar_t wide[256];
     to_wide(title, wide, 256);
     SetWindowTextW(window->hwnd, wide);
