@@ -1,4 +1,5 @@
 #include "o_input.h"
+#include "o_log.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -9,7 +10,9 @@
 typedef uint64_t QWORD;
 #endif
 
-#include "o_log.h"
+static void input_system_init() {
+
+}
 
 static OModKeys get_modifiers(void) {
     OModKeys mods = 0;
@@ -96,4 +99,13 @@ bool input_poll_events(void) {
         p = NEXTRAWINPUTBLOCK(p);
     }
     return hasInput;
+}
+
+OInput *input_subscribe(const OInputCallbacks *callbacks, void *user_data) {
+
+}
+
+void input_unsubscribe(OInput *window) {
+
+
 }
