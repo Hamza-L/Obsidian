@@ -42,7 +42,9 @@ Q := @
 endif
 
 CFLAGS := -std=c99 -g -DDEBUG -Wall -Wextra -Wpedantic -Werror
-CFLAGS += -Iexternal
+CFLAGS += -I./external
+CFLAGS += -I./include
+
 OBJCFLAGS := -fobjc-arc
 LDFLAGS :=
 LDLIBS :=
@@ -163,7 +165,7 @@ DEPFLAGS := -MMD -MP
 $(BUILD_DIR)/%.$(OBJ_EXT): %.c $(EXTRA_OBJECT_DEPS)
 	@echo CC $<
 	$(Q)$(call mkdir_p,$(dir $@))
-	$(Q)$(CC) $(CFLAGS) -Iinclude $(DEPFLAGS) -MF $(@:.$(OBJ_EXT)=.d) -c $< -o $@
+	$(Q)$(CC) $(CFLAGS) $(DEPFLAGS) -MF $(@:.$(OBJ_EXT)=.d) -c $< -o $@
 
 $(BUILD_DIR)/%.$(OBJ_EXT): %.m $(EXTRA_OBJECT_DEPS)
 	@echo OBJC $<

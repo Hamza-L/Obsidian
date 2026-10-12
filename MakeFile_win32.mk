@@ -38,6 +38,7 @@ $(call require_probe,Visual Studio 2022,"$(VSWHERE)" -latest -property installat
 
 # --- Sources --------------------------------------------------------------
 SRC_C += src/platform/win32/p_window.c
+SRC_C += src/platform/win32/p_input.c
 # SRC_C += src/renderer/vulkan/ne_renderer_vulkan.c
 # SRC_C += src/renderer/vulkan/ne_swapchain_vulkan_wsi.c
 # SRC_C += src/renderer/vulkan/ne_swapchain_dxgi.c
