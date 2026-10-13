@@ -30,10 +30,9 @@ struct OWindow {
     HWND hwnd;
     OWindowCallbacks callbacks;
     OTitleBar titlebar;
-    bool resizeable;
     bool open;
 
-    void *user_data;
+    void *userdata;
     OWindow *next;
 };
 
@@ -88,7 +87,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         w->open = false;
         g_app.window_count--;
         if (w->callbacks.on_close) {
-            w->callbacks.on_close(w, w->user_data);
+            w->callbacks.on_close(w, w->userdata);
         }
         return 0;
 
@@ -98,13 +97,13 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
 
     case WM_SIZE:
         if (!w) return 0;
-        if (w->callbacks.on_resize) w->callbacks.on_resize(w, LOWORD(lparam), HIWORD(lparam), w->user_data);
-        if (w->callbacks.on_refresh) w->callbacks.on_refresh(w, w->user_data);
+        if (w->callbacks.on_resize) w->callbacks.on_resize(w, LOWORD(lparam), HIWORD(lparam), w->userdata);
+        if (w->callbacks.on_refresh) w->callbacks.on_refresh(w, w->userdata);
         return 0;
 
     case WM_MOVE:
         if (!w) return 0;
-        if (w->callbacks.on_move) w->callbacks.on_move(w, (int16_t)LOWORD(lparam), (int16_t)HIWORD(lparam), w->user_data);
+        if (w->callbacks.on_move) w->callbacks.on_move(w, (int16_t)LOWORD(lparam), (int16_t)HIWORD(lparam), w->userdata);
         return 0;
 
     default:
@@ -142,7 +141,7 @@ bool window_poll_events(void) {
         DispatchMessageW(&msg);
     }
     for (OWindow *w = g_app.windows; w; w = w->next) {
-        if (w->hwnd && w->callbacks.on_refresh) w->callbacks.on_refresh(w, w->user_data);
+        if (w->hwnd && w->callbacks.on_refresh) w->callbacks.on_refresh(w, w->userdata);
     }
     return g_app.window_count > 0;
 }
@@ -167,8 +166,7 @@ OWindow *window_create(const OWindowDesc *desc) {
 
     DWORD style = WS_POPUP;
     if (!desc->undecorated) {
-        style |= WS_CAPTION | WS_OVERLAPPED | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
-        if (desc->resizable) style |= WS_THICKFRAME;
+        style |= WS_CAPTION | WS_OVERLAPPED | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_THICKFRAME;
     }
 
     wchar_t title[256];
@@ -246,14 +244,14 @@ void window_set_size(OWindow *window, int32_t width, int32_t height) {
     if (window && window->hwnd && width > 0 && height > 0) set_content_size(window->hwnd, width, height);
 }
 
-void window_set_callbacks(OWindow *window, const OWindowCallbacks *callbacks, void *user_data) {
+void window_set_callbacks(OWindow *window, const OWindowCallbacks *callbacks, void *userdata) {
     if (!window) return;
     if (callbacks) {
         window->callbacks = *callbacks;
     } else {
         memset(&window->callbacks, 0, sizeof window->callbacks);
     }
-    window->user_data = user_data;
+    window->userdata = userdata;
 }
 
 bool window_get_content_size(const OWindow *window, int32_t *out_width, int32_t *out_height) {

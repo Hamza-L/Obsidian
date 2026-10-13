@@ -11,7 +11,6 @@ typedef struct OWindowDesc {
     int32_t x, y;
     int32_t width, height;
 
-    bool resizable;
     bool undecorated;
     bool transparent;
 } OWindowDesc;
