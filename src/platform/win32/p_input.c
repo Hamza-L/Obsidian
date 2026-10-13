@@ -5,12 +5,57 @@
 #include <windows.h>
 #include <windowsx.h>
 
+#include <stdlib.h>
+#include <stdio.h>
+
+#define MAX_SUBSCRIBER_CAP 8
+#define DEFAULT_RAWINPUT_BUFFER_SIZE 64
+
 // Define QWORD if the Windows SDK has not done so
 #ifndef QWORD
 typedef uint64_t QWORD;
 #endif
 
-static void input_system_init() {
+struct OInputSubscriber {
+    OInputCallbacks callbacks;
+    void* userdata;
+    bool online;
+    bool disabled;
+};
+
+struct {
+    bool isInit;
+    OInputSubscriber subscribers[MAX_SUBSCRIBER_CAP];
+    uint32_t count;
+
+    void* rawInputBuffer;
+    size_t rawInputBufferSize;
+} g_input;
+
+static void input_system_init(void) {
+    for (int i = 0; i < MAX_SUBSCRIBER_CAP; i++) {
+        g_input.subscribers[i] = (OInputSubscriber){.callbacks = EMPTY_INPUT_CALLBACK, .userdata = NULL, .online = false, .disabled = false};
+    }
+    g_input.count = 0;
+    g_input.isInit = true;
+    g_input.rawInputBuffer = malloc(DEFAULT_RAWINPUT_BUFFER_SIZE * sizeof(RAWINPUT));
+    g_input.rawInputBufferSize = DEFAULT_RAWINPUT_BUFFER_SIZE * sizeof(RAWINPUT);
+
+    RAWINPUTDEVICE Rid[2];
+    Rid[0].usUsagePage = 0x01;          // HID_USAGE_PAGE_GENERIC
+    Rid[0].usUsage = 0x02;              // HID_USAGE_GENERIC_MOUSE
+    Rid[0].dwFlags = 0;                 // adds mouse and also ignores legacy mouse messages
+    Rid[0].hwndTarget = 0;
+
+    Rid[1].usUsagePage = 0x01;          // HID_USAGE_PAGE_GENERIC
+    Rid[1].usUsage = 0x06;              // HID_USAGE_GENERIC_KEYBOARD
+    Rid[1].dwFlags = 0;                 // adds keyboard and also ignores legacy keyboard messages
+    Rid[1].hwndTarget = 0;
+
+    if (RegisterRawInputDevices(Rid, 2, sizeof(Rid[0])) == FALSE) {
+        //registration failed. Call GetLastError for the cause of the error
+        LOG_ERROR("Raw Input Registration failed with errcode : %lul\n", GetLastError());
+    }
 
 }
 
@@ -68,44 +113,110 @@ OMouseButtonEvent make_mouse_button_event(UINT msg, LPARAM lparam) {
     };
 }
 
+static void ProcessInput(const RAWINPUT* input)
+{
+    if (input->header.dwType == RIM_TYPEKEYBOARD)
+    {
+        const RAWKEYBOARD* kb = &input->data.keyboard;
+        const char* transition = (kb->Flags & RI_KEY_BREAK) ? "up" : "down";
+        const char* extended   = (kb->Flags & RI_KEY_E0)    ? " e0" :
+                                 (kb->Flags & RI_KEY_E1)    ? " e1" : "";
+        fprintf(stderr,"keyboard: vk=0x%02x scan=0x%02x %s%s msg=0x%04x extra=0x%08lx\n",
+            kb->VKey, kb->MakeCode, transition, extended,
+            kb->Message, kb->ExtraInformation);
+    }
+    else if (input->header.dwType == RIM_TYPEMOUSE)
+    {
+        const RAWMOUSE* mouse = &input->data.mouse;
+        const char* moveMode  = (mouse->usFlags & MOUSE_MOVE_ABSOLUTE) ? "abs" : "rel";
+
+        fprintf(stderr, "mouse: move %s dx=%ld dy=%ld\n", moveMode, mouse->lLastX, mouse->lLastY);
+
+        if (mouse->usButtonFlags & RI_MOUSE_LEFT_BUTTON_DOWN)   fprintf(stderr, "  left down\n");
+        if (mouse->usButtonFlags & RI_MOUSE_LEFT_BUTTON_UP)     fprintf(stderr, "  left up\n");
+        if (mouse->usButtonFlags & RI_MOUSE_RIGHT_BUTTON_DOWN)  fprintf(stderr, "  right down\n");
+        if (mouse->usButtonFlags & RI_MOUSE_RIGHT_BUTTON_UP)    fprintf(stderr, "  right up\n");
+        if (mouse->usButtonFlags & RI_MOUSE_MIDDLE_BUTTON_DOWN) fprintf(stderr, "  middle down\n");
+        if (mouse->usButtonFlags & RI_MOUSE_MIDDLE_BUTTON_UP)   fprintf(stderr, "  middle up\n");
+        if (mouse->usButtonFlags & RI_MOUSE_BUTTON_4_DOWN)      fprintf(stderr, "  x1 down\n");
+        if (mouse->usButtonFlags & RI_MOUSE_BUTTON_4_UP)        fprintf(stderr, "  x1 up\n");
+        if (mouse->usButtonFlags & RI_MOUSE_BUTTON_5_DOWN)      fprintf(stderr, "  x2 down\n");
+        if (mouse->usButtonFlags & RI_MOUSE_BUTTON_5_UP)        fprintf(stderr, "  x2 up\n");
+
+        if (mouse->usButtonFlags & RI_MOUSE_WHEEL)
+            fprintf(stderr,"  wheel delta=%d\n",  (int)(short)mouse->usButtonData);
+        if (mouse->usButtonFlags & RI_MOUSE_HWHEEL)
+            fprintf(stderr,"  hwheel delta=%d\n", (int)(short)mouse->usButtonData);
+    }
+    else if (input->header.dwType == RIM_TYPEHID)
+    {
+        const RAWHID* hid = &input->data.hid;
+        fprintf(stderr,"hid: count=%lu size=%lu\n", hid->dwCount, hid->dwSizeHid);
+    }
+}
+
 bool input_poll_events(void) {
-    UINT bsize = 0;
-    RAWINPUT buffer[32];
     bool hasInput = false;
 
-    UINT count = GetRawInputBuffer(buffer, &bsize, sizeof(RAWINPUTHEADER));
-    if (bsize == 0) {
-        return hasInput; // No input messages in queue
-    }
-
-    if (count == (UINT)-1) {
-        DWORD err = GetLastError();
-        LOG_ERROR("input_poll_events: error %lul", err);
-        // Handle error...
-        return hasInput;
-    }
-
-    PRAWINPUT p = buffer;
-    for (UINT i = 0; i < count; ++i) {
-        if (p->header.dwType == RIM_TYPEKEYBOARD) {
-            // Process keyboard input: pCurr->data.keyboard
-            hasInput = true;
-        } else if (p->header.dwType == RIM_TYPEMOUSE) {
-            // Process mouse input: pCurr->data.mouse
-            hasInput = true;
+    for (;;) {
+        UINT bufferSize = g_input.rawInputBufferSize;
+        UINT count = GetRawInputBuffer(g_input.rawInputBuffer, &bufferSize, sizeof(RAWINPUTHEADER));
+        if (count == 0) {
+            break; // No input messages in queue
         }
 
-        // Advance to the next raw input block using NEXTRAWINPUTBLOCK macro
-        p = NEXTRAWINPUTBLOCK(p);
+        if (count == (UINT)-1) {
+            /* Buffer too small — grow and retry. */
+            g_input.rawInputBufferSize = max(bufferSize, g_input.rawInputBufferSize * 2);
+            g_input.rawInputBuffer = realloc(g_input.rawInputBuffer, g_input.rawInputBufferSize);
+            if (g_input.rawInputBuffer == NULL) {
+                break;
+            }
+            continue;
+        }
+
+        PRAWINPUT p = g_input.rawInputBuffer;
+        for (UINT i = 0; i < count; ++i) {
+            // if (p->header.dwType == RIM_TYPEKEYBOARD) {
+            //     // Process keyboard input: pCurr->data.keyboard
+            //     hasInput = true;
+            // } else if (p->header.dwType == RIM_TYPEMOUSE) {
+            //     // Process mouse input: pCurr->data.mouse
+            //     hasInput = true;
+            // }
+            ProcessInput(p);
+
+            // Advance to the next raw input block using NEXTRAWINPUTBLOCK macro
+            p = NEXTRAWINPUTBLOCK(p);
+        }
     }
     return hasInput;
 }
 
-OInput *input_subscribe(const OInputCallbacks *callbacks, void *user_data) {
+OInputSubscriber *input_subscribe(const OInputCallbacks callbacks, void *userdata) {
+    if(!g_input.isInit) input_system_init();
 
+    if (g_input.count >= MAX_SUBSCRIBER_CAP) {
+        LOG_WARN("input system: OUT OF SUBSCRIBER SLOT");
+    }
+
+    uint32_t idx = 0;
+    for (idx = 0; idx < MAX_SUBSCRIBER_CAP; idx++) {
+        if(!g_input.subscribers[idx].online) break;
+    }
+    g_input.subscribers[idx].callbacks = callbacks;
+    g_input.subscribers[idx].userdata = userdata;
+    g_input.subscribers[idx].online = true;
+    g_input.subscribers[idx].disabled = false;
+    g_input.count++;
+
+    return &g_input.subscribers[idx];
 }
 
-void input_unsubscribe(OInput *window) {
-
-
+void input_unsubscribe(OInputSubscriber *subscriber) {
+    subscriber->callbacks = EMPTY_INPUT_CALLBACK;
+    subscriber->userdata = NULL;
+    subscriber->disabled = false;
+    subscriber->online = false;
+    g_input.count--;
 }

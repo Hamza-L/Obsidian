@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-typedef struct OInput OInput;
+typedef struct OInputSubscriber OInputSubscriber;
 
 typedef uint32_t OModKeys;
 enum {
@@ -98,12 +98,12 @@ typedef struct OMouseScrollEvent {
 } OMouseScrollEvent;
 
 
-typedef void (*OnKeyFn)(OInput *input, OKeyEvent event, void *user_data);
-typedef void (*OnTextInputFn)(OInput *input, uint32_t codepoint, void *user_data);
+typedef void (*OnKeyFn)(OInputSubscriber *input, OKeyEvent event, void *user_data);
+typedef void (*OnTextInputFn)(OInputSubscriber *input, uint32_t codepoint, void *user_data);
 
-typedef void (*OnMouseMoveFn)(OInput *input, OMouseMoveEvent event, void *user_data);
-typedef void (*OnMouseButtonFn)(OInput *input, OMouseButtonEvent event, void *user_data);
-typedef void (*OnMouseScrollFn)(OInput *input, OMouseScrollEvent event, void *user_data);
+typedef void (*OnMouseMoveFn)(OInputSubscriber *input, OMouseMoveEvent event, void *user_data);
+typedef void (*OnMouseButtonFn)(OInputSubscriber *input, OMouseButtonEvent event, void *user_data);
+typedef void (*OnMouseScrollFn)(OInputSubscriber *input, OMouseScrollEvent event, void *user_data);
 
 typedef struct OInputCallbacks {
     OnKeyFn on_key_down;
@@ -116,8 +116,19 @@ typedef struct OInputCallbacks {
     OnMouseScrollFn on_mouse_scroll;
 } OInputCallbacks;
 
-OInput *input_subscribe(const OInputCallbacks *callbacks, void *user_data);
-void input_unsubscribe(OInput *window);
+#define EMPTY_INPUT_CALLBACK (OInputCallbacks) { \
+    .on_key_down = NULL,                  \
+    .on_key_up = NULL,                    \
+    .on_text_input = NULL,          \
+\
+    .on_mouse_move = NULL,          \
+    .on_mouse_down = NULL,        \
+    .on_mouse_up = NULL,          \
+    .on_mouse_scroll = NULL       \
+}
+
+OInputSubscriber *input_subscribe(const OInputCallbacks callbacks, void *userdata);
+void input_unsubscribe(OInputSubscriber *subscriber);
 
 bool input_poll_events(void);
 
