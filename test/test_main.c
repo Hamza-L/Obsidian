@@ -13,6 +13,7 @@ int main(void) {
         {"o_log", test_o_log},
         {"o_memory", test_o_memory},
         {"o_file", test_o_file},
+        {"o_input", test_o_input},
         {"o_window", test_o_window},
     };
     const int module_count = sizeof modules / sizeof modules[0];

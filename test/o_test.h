@@ -18,6 +18,7 @@ extern int test_failures;
 void test_o_log(void);
 void test_o_memory(void);
 void test_o_file(void);
+void test_o_input(void);
 void test_o_window(void);
 
 #endif
