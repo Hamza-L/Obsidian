@@ -25,6 +25,8 @@ int main(int argc, char **argv) {
     (void)argc;
     (void)argv;
 
+    log_set_level(O_LOG_DEBUG);
+
     OWindow * window = window_create(&(OWindowDesc){.width = 800, .height = 600, .x = 0, .y = 0, .title = "Obsidian"});
     window_show(window);
     window_set_callbacks(window, &(OWindowCallbacks){.on_refresh = on_refresh,}, NULL);

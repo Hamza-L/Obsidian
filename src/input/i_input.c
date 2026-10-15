@@ -4,6 +4,10 @@
 
 #include <string.h>
 
+#ifndef INPUT_TRACE
+#define INPUT_TRACE 1
+#endif
+
 #define MAX_SUBSCRIBERS 8
 #define QUEUE_CAPACITY 256
 
@@ -61,7 +65,34 @@ uint32_t utf16_decode_pair(uint16_t high, uint16_t low) {
     return UTF16_SUPPLEMENTARY_PLANE_FIRST + high_bits + low_bits;
 }
 
+static void trace(const OInputEvent *e) {
+    if (!INPUT_TRACE) return;
+    switch (e->kind) {
+    case O_INPUT_KEY_DOWN:
+    case O_INPUT_KEY_UP:
+        LOG_DEBUG("key %-4s key=%d native=%u mods=0x%x repeat=%d", e->kind == O_INPUT_KEY_DOWN ? "down" : "up",
+                  e->data.key.key, e->data.key.native_key_code, e->data.key.modifiers, e->data.key.is_repeat);
+        break;
+    case O_INPUT_TEXT:
+        LOG_DEBUG("text     U+%04X", e->data.codepoint);
+        break;
+    case O_INPUT_MOUSE_MOVE:
+        LOG_DEBUG("mouse move x=%.0f y=%.0f dx=%.0f dy=%.0f", e->data.move.x, e->data.move.y, e->data.move.delta_x,
+                  e->data.move.delta_y);
+        break;
+    case O_INPUT_MOUSE_DOWN:
+    case O_INPUT_MOUSE_UP:
+        LOG_DEBUG("mouse %-4s button=%d x=%.0f y=%.0f mods=0x%x", e->kind == O_INPUT_MOUSE_DOWN ? "down" : "up",
+                  e->data.button.button, e->data.button.x, e->data.button.y, e->data.button.modifiers);
+        break;
+    case O_INPUT_MOUSE_SCROLL:
+        LOG_DEBUG("scroll   dx=%.2f dy=%.2f", e->data.scroll.delta_x, e->data.scroll.delta_y);
+        break;
+    }
+}
+
 static void dispatch(const OInputEvent *e) {
+    trace(e);
     for (uint32_t i = 0; i < MAX_SUBSCRIBERS; i++) {
         OInputSubscriber *s = &g_input.subscribers[i];
         if (!s->online) continue;
