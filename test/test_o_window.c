@@ -39,7 +39,6 @@ void test_o_window(void) {
         .y = 50,
         .width = 320,
         .height = 240,
-        .resizable = true,
     });
     CHECK(w != NULL);
     if (!w) return;
