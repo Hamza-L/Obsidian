@@ -290,9 +290,9 @@ OWindow *window_create(const OWindowDesc *desc) {
     for (uint32_t i = 0; i < NSScreen.screens.count; i++) {
         screen = NSScreen.screens[i];
         if (curpos.x > screen.frame.origin.x &&
-            curpos.x < screen.frame.origin.x + screen.frame.origin.x &&
+            curpos.x < screen.frame.origin.x + screen.frame.size.width &&
             curpos.y > screen.frame.origin.y &&
-            curpos.y < screen.frame.origin.y + screen.frame.origin.y){
+            curpos.y < screen.frame.origin.y + screen.frame.size.height){
             break;
         }
     }
