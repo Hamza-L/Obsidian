@@ -129,7 +129,6 @@ typedef struct OInputCallbacks {
 
 OInputSubscriber *input_subscribe(const OInputCallbacks callbacks, void *userdata);
 void input_unsubscribe(OInputSubscriber *subscriber);
-
 bool input_poll_events(void);
 
 #endif //O_INPUT_H

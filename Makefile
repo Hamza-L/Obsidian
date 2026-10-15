@@ -44,6 +44,7 @@ endif
 CFLAGS := -std=c99 -g -DDEBUG -Wall -Wextra -Wpedantic -Werror
 CFLAGS += -I./external
 CFLAGS += -I./include
+CFLAGS += -I./src/input
 
 OBJCFLAGS := -fobjc-arc
 LDFLAGS :=
@@ -59,6 +60,7 @@ SRC_C := src/main.c
 SRC_C += src/memory/m_alloc.c
 SRC_C += src/file/f_file.c
 SRC_C += src/log/l_log.c
+SRC_C += src/input/i_input.c
 SRC_M :=
 
 # One test file per public header, plus the runner.

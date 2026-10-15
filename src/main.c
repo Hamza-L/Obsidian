@@ -15,13 +15,6 @@
                             (end_##name.tv_nsec - start_##name.tv_nsec) / 1000000000.0; \
     printf("[PROFILE] %s took %.6f seconds\n", #name, elapsed_##name);
 
-static void i_am_pressed(OInputSubscriber *input, OMouseButtonEvent event, void *user_data) {
-    (void)input;
-    (void)event;
-    (void)user_data;
-    fprintf(stderr, "MOUSE_PRESS\n");
-}
-
 static void on_refresh(OWindow *window, void *user) {
     (void)window;
     (void)user;
@@ -36,7 +29,7 @@ int main(int argc, char **argv) {
     window_show(window);
     window_set_callbacks(window, &(OWindowCallbacks){.on_refresh = on_refresh,}, NULL);
 
-    input_subscribe((OInputCallbacks){.on_mouse_down = i_am_pressed }, NULL);
+    input_subscribe(EMPTY_INPUT_CALLBACK, NULL);
     while (window_poll_events()) {
         //do work
     }
