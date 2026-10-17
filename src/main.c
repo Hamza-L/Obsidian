@@ -4,6 +4,14 @@
 
 #include <stdio.h>
 
+static void on_key(OInputSubscriber *input, OKeyEvent event, void *user) {
+    (void)input;
+    if (event.key == O_KEY_ESCAPE) {
+        OWindow* window = (OWindow*)user;
+        window_close(window);
+    }
+}
+
 int main(int argc, char **argv) {
     (void)argc;
     (void)argv;
@@ -11,11 +19,12 @@ int main(int argc, char **argv) {
     log_set_level(O_LOG_DEBUG);
 
     OWindow * window = window_create(&(OWindowDesc){.width = 800, .height = 600, .x = 0, .y = 0, .title = "Obsidian"});
-    window_show(window);
 
-    input_subscribe(EMPTY_INPUT_CALLBACK, NULL);
+    input_subscribe((OInputCallbacks){.on_key_down = on_key }, window);
 
     bool isRunning = true;
+
+    window_show(window);
     while (isRunning) {
         //do work
         isRunning = window_poll_events();
