@@ -1,5 +1,6 @@
 #include "o_log.h"
 #include "o_window.h"
+#include "o_renderer.h"
 #include "o_input.h"
 
 #include <stdio.h>
@@ -19,18 +20,16 @@ int main(int argc, char **argv) {
     log_set_level(O_LOG_DEBUG);
 
     OWindow * window = window_create(&(OWindowDesc){.width = 800, .height = 600, .x = 0, .y = 0, .title = "Obsidian"});
-
     input_subscribe((OInputCallbacks){.on_key_down = on_key }, window);
 
-    bool isRunning = true;
+    ORenderer *renderer = renderer_create();
 
-    window_show(window);
-    while (isRunning) {
+    while (window_poll_events()) {
         //do work
-        isRunning = window_poll_events();
         input_poll_events();
     }
 
+    renderer_destroy(renderer);
     window_destroy(window);
 
     return 0;

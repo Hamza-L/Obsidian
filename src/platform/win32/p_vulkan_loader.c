@@ -111,42 +111,42 @@ PFN_vkCmdDraw vkCmdDraw;
 PFN_vkCmdDrawIndexed vkCmdDrawIndexed;
 PFN_vkCmdPushConstants vkCmdPushConstants;
 
-static void *ne_vk_get_global(const char *name) {
+static void *vk_get_global(const char *name) {
     if (!vkGetInstanceProcAddr) {
         return NULL;
     }
     return (void *)vkGetInstanceProcAddr(VK_NULL_HANDLE, name);
 }
 
-void *ne_vk_get_instance(VkInstance instance, const char *name) {
+void *vk_get_instance(VkInstance instance, const char *name) {
     if (!vkGetInstanceProcAddr) {
         return NULL;
     }
     return (void *)vkGetInstanceProcAddr(instance, name);
 }
 
-void *ne_vk_get_device(VkDevice device, const char *name) {
+void *vk_get_device(VkDevice device, const char *name) {
     if (!vkGetDeviceProcAddr) {
         return NULL;
     }
     return (void *)vkGetDeviceProcAddr(device, name);
 }
 
-bool ne_vk_load_instance_fns(VkInstance instance) {
-    vkDestroyInstance = (PFN_vkDestroyInstance)ne_vk_get_instance(instance, "vkDestroyInstance");
-    vkEnumeratePhysicalDevices = (PFN_vkEnumeratePhysicalDevices)ne_vk_get_instance(instance, "vkEnumeratePhysicalDevices");
-    vkGetPhysicalDeviceProperties = (PFN_vkGetPhysicalDeviceProperties)ne_vk_get_instance(instance, "vkGetPhysicalDeviceProperties");
-    vkGetPhysicalDeviceQueueFamilyProperties = (PFN_vkGetPhysicalDeviceQueueFamilyProperties)ne_vk_get_instance(instance, "vkGetPhysicalDeviceQueueFamilyProperties");
-    vkCreateDevice = (PFN_vkCreateDevice)ne_vk_get_instance(instance, "vkCreateDevice");
-    vkGetPhysicalDeviceMemoryProperties = (PFN_vkGetPhysicalDeviceMemoryProperties)ne_vk_get_instance(instance, "vkGetPhysicalDeviceMemoryProperties");
+bool vk_load_instance_fns(VkInstance instance) {
+    vkDestroyInstance = (PFN_vkDestroyInstance)vk_get_instance(instance, "vkDestroyInstance");
+    vkEnumeratePhysicalDevices = (PFN_vkEnumeratePhysicalDevices)vk_get_instance(instance, "vkEnumeratePhysicalDevices");
+    vkGetPhysicalDeviceProperties = (PFN_vkGetPhysicalDeviceProperties)vk_get_instance(instance, "vkGetPhysicalDeviceProperties");
+    vkGetPhysicalDeviceQueueFamilyProperties = (PFN_vkGetPhysicalDeviceQueueFamilyProperties)vk_get_instance(instance, "vkGetPhysicalDeviceQueueFamilyProperties");
+    vkCreateDevice = (PFN_vkCreateDevice)vk_get_instance(instance, "vkCreateDevice");
+    vkGetPhysicalDeviceMemoryProperties = (PFN_vkGetPhysicalDeviceMemoryProperties)vk_get_instance(instance, "vkGetPhysicalDeviceMemoryProperties");
 
-    vkCreateWin32SurfaceKHR = (PFN_vkCreateWin32SurfaceKHR)ne_vk_get_instance(instance, "vkCreateWin32SurfaceKHR");
-    vkDestroySurfaceKHR = (PFN_vkDestroySurfaceKHR)ne_vk_get_instance(instance, "vkDestroySurfaceKHR");
+    vkCreateWin32SurfaceKHR = (PFN_vkCreateWin32SurfaceKHR)vk_get_instance(instance, "vkCreateWin32SurfaceKHR");
+    vkDestroySurfaceKHR = (PFN_vkDestroySurfaceKHR)vk_get_instance(instance, "vkDestroySurfaceKHR");
 
-    vkGetPhysicalDeviceSurfaceSupportKHR = (PFN_vkGetPhysicalDeviceSurfaceSupportKHR)ne_vk_get_instance(instance, "vkGetPhysicalDeviceSurfaceSupportKHR");
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR = (PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR)ne_vk_get_instance(instance, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
-    vkGetPhysicalDeviceSurfaceFormatsKHR = (PFN_vkGetPhysicalDeviceSurfaceFormatsKHR)ne_vk_get_instance(instance, "vkGetPhysicalDeviceSurfaceFormatsKHR");
-    vkGetPhysicalDeviceSurfacePresentModesKHR = (PFN_vkGetPhysicalDeviceSurfacePresentModesKHR)ne_vk_get_instance(instance, "vkGetPhysicalDeviceSurfacePresentModesKHR");
+    vkGetPhysicalDeviceSurfaceSupportKHR = (PFN_vkGetPhysicalDeviceSurfaceSupportKHR)vk_get_instance(instance, "vkGetPhysicalDeviceSurfaceSupportKHR");
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR = (PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR)vk_get_instance(instance, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
+    vkGetPhysicalDeviceSurfaceFormatsKHR = (PFN_vkGetPhysicalDeviceSurfaceFormatsKHR)vk_get_instance(instance, "vkGetPhysicalDeviceSurfaceFormatsKHR");
+    vkGetPhysicalDeviceSurfacePresentModesKHR = (PFN_vkGetPhysicalDeviceSurfacePresentModesKHR)vk_get_instance(instance, "vkGetPhysicalDeviceSurfacePresentModesKHR");
 
     return vkDestroyInstance && vkEnumeratePhysicalDevices && vkGetPhysicalDeviceQueueFamilyProperties && vkCreateDevice &&
            vkCreateWin32SurfaceKHR && vkDestroySurfaceKHR && vkGetPhysicalDeviceSurfaceSupportKHR &&
@@ -154,90 +154,90 @@ bool ne_vk_load_instance_fns(VkInstance instance) {
            vkGetPhysicalDeviceMemoryProperties;
 }
 
-bool ne_vk_load_device_fns(VkDevice device) {
-    vkDestroyDevice = (PFN_vkDestroyDevice)ne_vk_get_device(device, "vkDestroyDevice");
-    vkGetDeviceQueue = (PFN_vkGetDeviceQueue)ne_vk_get_device(device, "vkGetDeviceQueue");
-    vkDeviceWaitIdle = (PFN_vkDeviceWaitIdle)ne_vk_get_device(device, "vkDeviceWaitIdle");
+bool vk_load_device_fns(VkDevice device) {
+    vkDestroyDevice = (PFN_vkDestroyDevice)vk_get_device(device, "vkDestroyDevice");
+    vkGetDeviceQueue = (PFN_vkGetDeviceQueue)vk_get_device(device, "vkGetDeviceQueue");
+    vkDeviceWaitIdle = (PFN_vkDeviceWaitIdle)vk_get_device(device, "vkDeviceWaitIdle");
 
-    vkCreateSwapchainKHR = (PFN_vkCreateSwapchainKHR)ne_vk_get_device(device, "vkCreateSwapchainKHR");
-    vkDestroySwapchainKHR = (PFN_vkDestroySwapchainKHR)ne_vk_get_device(device, "vkDestroySwapchainKHR");
-    vkGetSwapchainImagesKHR = (PFN_vkGetSwapchainImagesKHR)ne_vk_get_device(device, "vkGetSwapchainImagesKHR");
-    vkAcquireNextImageKHR = (PFN_vkAcquireNextImageKHR)ne_vk_get_device(device, "vkAcquireNextImageKHR");
+    vkCreateSwapchainKHR = (PFN_vkCreateSwapchainKHR)vk_get_device(device, "vkCreateSwapchainKHR");
+    vkDestroySwapchainKHR = (PFN_vkDestroySwapchainKHR)vk_get_device(device, "vkDestroySwapchainKHR");
+    vkGetSwapchainImagesKHR = (PFN_vkGetSwapchainImagesKHR)vk_get_device(device, "vkGetSwapchainImagesKHR");
+    vkAcquireNextImageKHR = (PFN_vkAcquireNextImageKHR)vk_get_device(device, "vkAcquireNextImageKHR");
 
-    vkQueueSubmit = (PFN_vkQueueSubmit)ne_vk_get_device(device, "vkQueueSubmit");
-    vkQueuePresentKHR = (PFN_vkQueuePresentKHR)ne_vk_get_device(device, "vkQueuePresentKHR");
-    vkQueueWaitIdle = (PFN_vkQueueWaitIdle)ne_vk_get_device(device, "vkQueueWaitIdle");
+    vkQueueSubmit = (PFN_vkQueueSubmit)vk_get_device(device, "vkQueueSubmit");
+    vkQueuePresentKHR = (PFN_vkQueuePresentKHR)vk_get_device(device, "vkQueuePresentKHR");
+    vkQueueWaitIdle = (PFN_vkQueueWaitIdle)vk_get_device(device, "vkQueueWaitIdle");
 
-    vkCreateSemaphore = (PFN_vkCreateSemaphore)ne_vk_get_device(device, "vkCreateSemaphore");
-    vkDestroySemaphore = (PFN_vkDestroySemaphore)ne_vk_get_device(device, "vkDestroySemaphore");
-    vkCreateFence = (PFN_vkCreateFence)ne_vk_get_device(device, "vkCreateFence");
-    vkDestroyFence = (PFN_vkDestroyFence)ne_vk_get_device(device, "vkDestroyFence");
-    vkWaitForFences = (PFN_vkWaitForFences)ne_vk_get_device(device, "vkWaitForFences");
-    vkResetFences = (PFN_vkResetFences)ne_vk_get_device(device, "vkResetFences");
+    vkCreateSemaphore = (PFN_vkCreateSemaphore)vk_get_device(device, "vkCreateSemaphore");
+    vkDestroySemaphore = (PFN_vkDestroySemaphore)vk_get_device(device, "vkDestroySemaphore");
+    vkCreateFence = (PFN_vkCreateFence)vk_get_device(device, "vkCreateFence");
+    vkDestroyFence = (PFN_vkDestroyFence)vk_get_device(device, "vkDestroyFence");
+    vkWaitForFences = (PFN_vkWaitForFences)vk_get_device(device, "vkWaitForFences");
+    vkResetFences = (PFN_vkResetFences)vk_get_device(device, "vkResetFences");
 
-    vkCreateCommandPool = (PFN_vkCreateCommandPool)ne_vk_get_device(device, "vkCreateCommandPool");
-    vkDestroyCommandPool = (PFN_vkDestroyCommandPool)ne_vk_get_device(device, "vkDestroyCommandPool");
-    vkResetCommandPool = (PFN_vkResetCommandPool)ne_vk_get_device(device, "vkResetCommandPool");
-    vkResetCommandBuffer = (PFN_vkResetCommandBuffer)ne_vk_get_device(device, "vkResetCommandBuffer");
-    vkAllocateCommandBuffers = (PFN_vkAllocateCommandBuffers)ne_vk_get_device(device, "vkAllocateCommandBuffers");
-    vkFreeCommandBuffers = (PFN_vkFreeCommandBuffers)ne_vk_get_device(device, "vkFreeCommandBuffers");
+    vkCreateCommandPool = (PFN_vkCreateCommandPool)vk_get_device(device, "vkCreateCommandPool");
+    vkDestroyCommandPool = (PFN_vkDestroyCommandPool)vk_get_device(device, "vkDestroyCommandPool");
+    vkResetCommandPool = (PFN_vkResetCommandPool)vk_get_device(device, "vkResetCommandPool");
+    vkResetCommandBuffer = (PFN_vkResetCommandBuffer)vk_get_device(device, "vkResetCommandBuffer");
+    vkAllocateCommandBuffers = (PFN_vkAllocateCommandBuffers)vk_get_device(device, "vkAllocateCommandBuffers");
+    vkFreeCommandBuffers = (PFN_vkFreeCommandBuffers)vk_get_device(device, "vkFreeCommandBuffers");
 
-    vkBeginCommandBuffer = (PFN_vkBeginCommandBuffer)ne_vk_get_device(device, "vkBeginCommandBuffer");
-    vkEndCommandBuffer = (PFN_vkEndCommandBuffer)ne_vk_get_device(device, "vkEndCommandBuffer");
-    vkCmdPipelineBarrier = (PFN_vkCmdPipelineBarrier)ne_vk_get_device(device, "vkCmdPipelineBarrier");
-    vkCmdClearColorImage = (PFN_vkCmdClearColorImage)ne_vk_get_device(device, "vkCmdClearColorImage");
+    vkBeginCommandBuffer = (PFN_vkBeginCommandBuffer)vk_get_device(device, "vkBeginCommandBuffer");
+    vkEndCommandBuffer = (PFN_vkEndCommandBuffer)vk_get_device(device, "vkEndCommandBuffer");
+    vkCmdPipelineBarrier = (PFN_vkCmdPipelineBarrier)vk_get_device(device, "vkCmdPipelineBarrier");
+    vkCmdClearColorImage = (PFN_vkCmdClearColorImage)vk_get_device(device, "vkCmdClearColorImage");
 
     /* Buffer management functions */
-    vkCreateBuffer = (PFN_vkCreateBuffer)ne_vk_get_device(device, "vkCreateBuffer");
-    vkDestroyBuffer = (PFN_vkDestroyBuffer)ne_vk_get_device(device, "vkDestroyBuffer");
-    vkCreateImage = (PFN_vkCreateImage)ne_vk_get_device(device, "vkCreateImage");
-    vkDestroyImage = (PFN_vkDestroyImage)ne_vk_get_device(device, "vkDestroyImage");
-    vkGetBufferMemoryRequirements = (PFN_vkGetBufferMemoryRequirements)ne_vk_get_device(device, "vkGetBufferMemoryRequirements");
-    vkGetImageMemoryRequirements = (PFN_vkGetImageMemoryRequirements)ne_vk_get_device(device, "vkGetImageMemoryRequirements");
-    vkAllocateMemory = (PFN_vkAllocateMemory)ne_vk_get_device(device, "vkAllocateMemory");
-    vkFreeMemory = (PFN_vkFreeMemory)ne_vk_get_device(device, "vkFreeMemory");
-    vkBindBufferMemory = (PFN_vkBindBufferMemory)ne_vk_get_device(device, "vkBindBufferMemory");
-    vkBindImageMemory = (PFN_vkBindImageMemory)ne_vk_get_device(device, "vkBindImageMemory");
-    vkMapMemory = (PFN_vkMapMemory)ne_vk_get_device(device, "vkMapMemory");
-    vkUnmapMemory = (PFN_vkUnmapMemory)ne_vk_get_device(device, "vkUnmapMemory");
-    vkFlushMappedMemoryRanges = (PFN_vkFlushMappedMemoryRanges)ne_vk_get_device(device, "vkFlushMappedMemoryRanges");
-    vkCmdCopyBuffer = (PFN_vkCmdCopyBuffer)ne_vk_get_device(device, "vkCmdCopyBuffer");
-    vkCmdCopyImage = (PFN_vkCmdCopyImage)ne_vk_get_device(device, "vkCmdCopyImage");
-    vkCmdCopyBufferToImage = (PFN_vkCmdCopyBufferToImage)ne_vk_get_device(device, "vkCmdCopyBufferToImage");
+    vkCreateBuffer = (PFN_vkCreateBuffer)vk_get_device(device, "vkCreateBuffer");
+    vkDestroyBuffer = (PFN_vkDestroyBuffer)vk_get_device(device, "vkDestroyBuffer");
+    vkCreateImage = (PFN_vkCreateImage)vk_get_device(device, "vkCreateImage");
+    vkDestroyImage = (PFN_vkDestroyImage)vk_get_device(device, "vkDestroyImage");
+    vkGetBufferMemoryRequirements = (PFN_vkGetBufferMemoryRequirements)vk_get_device(device, "vkGetBufferMemoryRequirements");
+    vkGetImageMemoryRequirements = (PFN_vkGetImageMemoryRequirements)vk_get_device(device, "vkGetImageMemoryRequirements");
+    vkAllocateMemory = (PFN_vkAllocateMemory)vk_get_device(device, "vkAllocateMemory");
+    vkFreeMemory = (PFN_vkFreeMemory)vk_get_device(device, "vkFreeMemory");
+    vkBindBufferMemory = (PFN_vkBindBufferMemory)vk_get_device(device, "vkBindBufferMemory");
+    vkBindImageMemory = (PFN_vkBindImageMemory)vk_get_device(device, "vkBindImageMemory");
+    vkMapMemory = (PFN_vkMapMemory)vk_get_device(device, "vkMapMemory");
+    vkUnmapMemory = (PFN_vkUnmapMemory)vk_get_device(device, "vkUnmapMemory");
+    vkFlushMappedMemoryRanges = (PFN_vkFlushMappedMemoryRanges)vk_get_device(device, "vkFlushMappedMemoryRanges");
+    vkCmdCopyBuffer = (PFN_vkCmdCopyBuffer)vk_get_device(device, "vkCmdCopyBuffer");
+    vkCmdCopyImage = (PFN_vkCmdCopyImage)vk_get_device(device, "vkCmdCopyImage");
+    vkCmdCopyBufferToImage = (PFN_vkCmdCopyBufferToImage)vk_get_device(device, "vkCmdCopyBufferToImage");
 
     /* Shader management functions */
-    vkCreateShaderModule = (PFN_vkCreateShaderModule)ne_vk_get_device(device, "vkCreateShaderModule");
-    vkDestroyShaderModule = (PFN_vkDestroyShaderModule)ne_vk_get_device(device, "vkDestroyShaderModule");
+    vkCreateShaderModule = (PFN_vkCreateShaderModule)vk_get_device(device, "vkCreateShaderModule");
+    vkDestroyShaderModule = (PFN_vkDestroyShaderModule)vk_get_device(device, "vkDestroyShaderModule");
 
     /* Render pass */
-    vkCreateRenderPass = (PFN_vkCreateRenderPass)ne_vk_get_device(device, "vkCreateRenderPass");
-    vkDestroyRenderPass = (PFN_vkDestroyRenderPass)ne_vk_get_device(device, "vkDestroyRenderPass");
+    vkCreateRenderPass = (PFN_vkCreateRenderPass)vk_get_device(device, "vkCreateRenderPass");
+    vkDestroyRenderPass = (PFN_vkDestroyRenderPass)vk_get_device(device, "vkDestroyRenderPass");
 
     /* Image views */
-    vkCreateImageView = (PFN_vkCreateImageView)ne_vk_get_device(device, "vkCreateImageView");
-    vkDestroyImageView = (PFN_vkDestroyImageView)ne_vk_get_device(device, "vkDestroyImageView");
+    vkCreateImageView = (PFN_vkCreateImageView)vk_get_device(device, "vkCreateImageView");
+    vkDestroyImageView = (PFN_vkDestroyImageView)vk_get_device(device, "vkDestroyImageView");
 
     /* Framebuffers */
-    vkCreateFramebuffer = (PFN_vkCreateFramebuffer)ne_vk_get_device(device, "vkCreateFramebuffer");
-    vkDestroyFramebuffer = (PFN_vkDestroyFramebuffer)ne_vk_get_device(device, "vkDestroyFramebuffer");
+    vkCreateFramebuffer = (PFN_vkCreateFramebuffer)vk_get_device(device, "vkCreateFramebuffer");
+    vkDestroyFramebuffer = (PFN_vkDestroyFramebuffer)vk_get_device(device, "vkDestroyFramebuffer");
 
     /* Pipeline */
-    vkCreatePipelineLayout = (PFN_vkCreatePipelineLayout)ne_vk_get_device(device, "vkCreatePipelineLayout");
-    vkDestroyPipelineLayout = (PFN_vkDestroyPipelineLayout)ne_vk_get_device(device, "vkDestroyPipelineLayout");
-    vkCreateGraphicsPipelines = (PFN_vkCreateGraphicsPipelines)ne_vk_get_device(device, "vkCreateGraphicsPipelines");
-    vkDestroyPipeline = (PFN_vkDestroyPipeline)ne_vk_get_device(device, "vkDestroyPipeline");
+    vkCreatePipelineLayout = (PFN_vkCreatePipelineLayout)vk_get_device(device, "vkCreatePipelineLayout");
+    vkDestroyPipelineLayout = (PFN_vkDestroyPipelineLayout)vk_get_device(device, "vkDestroyPipelineLayout");
+    vkCreateGraphicsPipelines = (PFN_vkCreateGraphicsPipelines)vk_get_device(device, "vkCreateGraphicsPipelines");
+    vkDestroyPipeline = (PFN_vkDestroyPipeline)vk_get_device(device, "vkDestroyPipeline");
 
     /* Render pass commands */
-    vkCmdBeginRenderPass = (PFN_vkCmdBeginRenderPass)ne_vk_get_device(device, "vkCmdBeginRenderPass");
-    vkCmdEndRenderPass = (PFN_vkCmdEndRenderPass)ne_vk_get_device(device, "vkCmdEndRenderPass");
-    vkCmdBindPipeline = (PFN_vkCmdBindPipeline)ne_vk_get_device(device, "vkCmdBindPipeline");
-    vkCmdBindVertexBuffers = (PFN_vkCmdBindVertexBuffers)ne_vk_get_device(device, "vkCmdBindVertexBuffers");
-    vkCmdBindIndexBuffer = (PFN_vkCmdBindIndexBuffer)ne_vk_get_device(device, "vkCmdBindIndexBuffer");
-    vkCmdSetViewport = (PFN_vkCmdSetViewport)ne_vk_get_device(device, "vkCmdSetViewport");
-    vkCmdSetScissor = (PFN_vkCmdSetScissor)ne_vk_get_device(device, "vkCmdSetScissor");
-    vkCmdDraw = (PFN_vkCmdDraw)ne_vk_get_device(device, "vkCmdDraw");
-    vkCmdDrawIndexed = (PFN_vkCmdDrawIndexed)ne_vk_get_device(device, "vkCmdDrawIndexed");
-    vkCmdPushConstants = (PFN_vkCmdPushConstants)ne_vk_get_device(device, "vkCmdPushConstants");
+    vkCmdBeginRenderPass = (PFN_vkCmdBeginRenderPass)vk_get_device(device, "vkCmdBeginRenderPass");
+    vkCmdEndRenderPass = (PFN_vkCmdEndRenderPass)vk_get_device(device, "vkCmdEndRenderPass");
+    vkCmdBindPipeline = (PFN_vkCmdBindPipeline)vk_get_device(device, "vkCmdBindPipeline");
+    vkCmdBindVertexBuffers = (PFN_vkCmdBindVertexBuffers)vk_get_device(device, "vkCmdBindVertexBuffers");
+    vkCmdBindIndexBuffer = (PFN_vkCmdBindIndexBuffer)vk_get_device(device, "vkCmdBindIndexBuffer");
+    vkCmdSetViewport = (PFN_vkCmdSetViewport)vk_get_device(device, "vkCmdSetViewport");
+    vkCmdSetScissor = (PFN_vkCmdSetScissor)vk_get_device(device, "vkCmdSetScissor");
+    vkCmdDraw = (PFN_vkCmdDraw)vk_get_device(device, "vkCmdDraw");
+    vkCmdDrawIndexed = (PFN_vkCmdDrawIndexed)vk_get_device(device, "vkCmdDrawIndexed");
+    vkCmdPushConstants = (PFN_vkCmdPushConstants)vk_get_device(device, "vkCmdPushConstants");
 
     return vkDestroyDevice && vkGetDeviceQueue && vkCreateSwapchainKHR && vkGetSwapchainImagesKHR &&
            vkAcquireNextImageKHR && vkQueueSubmit && vkQueuePresentKHR && vkCreateSemaphore && vkCreateFence &&
@@ -257,7 +257,7 @@ bool ne_vk_load_device_fns(VkDevice device) {
            vkCmdDraw && vkCmdDrawIndexed && vkCmdPushConstants;
 }
 
-bool ne_vk_load_loader(HMODULE* vulkan_lib_handle) {
+bool vk_load_loader(HMODULE* vulkan_lib_handle) {
     *vulkan_lib_handle = LoadLibraryA("vulkan-1.dll");
     if (!vulkan_lib_handle) {
         LOG_ERROR("failed to load vulkan-1.dll (Vulkan runtime not installed?)");
@@ -272,9 +272,9 @@ bool ne_vk_load_loader(HMODULE* vulkan_lib_handle) {
         return false;
     }
 
-    vkCreateInstance = (PFN_vkCreateInstance)ne_vk_get_global("vkCreateInstance");
-    vkEnumerateInstanceExtensionProperties = (PFN_vkEnumerateInstanceExtensionProperties)ne_vk_get_global("vkEnumerateInstanceExtensionProperties");
-    vkEnumerateInstanceLayerProperties = (PFN_vkEnumerateInstanceLayerProperties)ne_vk_get_global("vkEnumerateInstanceLayerProperties");
+    vkCreateInstance = (PFN_vkCreateInstance)vk_get_global("vkCreateInstance");
+    vkEnumerateInstanceExtensionProperties = (PFN_vkEnumerateInstanceExtensionProperties)vk_get_global("vkEnumerateInstanceExtensionProperties");
+    vkEnumerateInstanceLayerProperties = (PFN_vkEnumerateInstanceLayerProperties)vk_get_global("vkEnumerateInstanceLayerProperties");
 
     if (!vkCreateInstance || !vkEnumerateInstanceExtensionProperties) {
         LOG_ERROR("failed to load required Vulkan loader entry points");

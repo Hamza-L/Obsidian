@@ -214,7 +214,7 @@ typedef struct ODispatch {
     uint32_t constants_size;
 } ODispatch;
 
-ORenderer *renderer_create(const ORendererDesc *desc);
+ORenderer *renderer_create(void);
 void renderer_destroy(ORenderer *renderer);
 void renderer_wait_idle(ORenderer *renderer);
 

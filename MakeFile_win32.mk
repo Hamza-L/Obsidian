@@ -40,6 +40,8 @@ $(call require_probe,Visual Studio 2022,"$(VSWHERE)" -latest -property installat
 SRC_C += src/platform/win32/p_window.c
 SRC_C += src/platform/win32/p_input.c
 SRC_C += src/platform/win32/p_vulkan_loader.c
+SRC_C += src/platform/win32/p_vulkan_utils.c
+SRC_C += src/platform/win32/p_renderer.c
 # SRC_C += src/renderer/vulkan/ne_swapchain_vulkan_wsi.c
 # SRC_C += src/renderer/vulkan/ne_swapchain_dxgi.c
 
@@ -80,7 +82,7 @@ LDLIBS += clang_rt.asan-x86_64.lib
 endif
 
 # --- Dependencies: Vulkan-Headers (headers only) --------------------------
-VULKAN_HEADERS_VERSION ?= 1.3.280
+VULKAN_HEADERS_VERSION ?= 1.4.365
 VULKAN_HEADERS_DIR := external/vulkan-headers
 VULKAN_HEADERS_INCLUDE_DIR := $(VULKAN_HEADERS_DIR)/include
 VULKAN_HEADERS_MARKER := $(VULKAN_HEADERS_INCLUDE_DIR)/vulkan/vulkan.h

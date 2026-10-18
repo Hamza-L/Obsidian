@@ -197,6 +197,8 @@ OWindow *window_create(const OWindowDesc *desc) {
 
     window->next = g_app.windows;
     g_app.windows = window;
+
+    window_show(window);
     return window;
 }
 
