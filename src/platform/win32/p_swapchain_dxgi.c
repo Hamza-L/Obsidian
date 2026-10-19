@@ -167,12 +167,14 @@ static void release_vk_images(Swapchain *sc) {
             sc->sharedTextures[i] = NULL;
         }
 
-        if (sc->images[i] != VK_NULL_HANDLE) {
-            vkDestroyImage(sc->device, sc->images[i], NULL);
-        }
-
         if (sc->imageViews[i] != VK_NULL_HANDLE) {
             vkDestroyImageView(sc->device, sc->imageViews[i], NULL);
+            sc->imageViews[i] = VK_NULL_HANDLE;
+        }
+
+        if (sc->images[i] != VK_NULL_HANDLE) {
+            vkDestroyImage(sc->device, sc->images[i], NULL);
+            sc->images[i] = VK_NULL_HANDLE;
         }
     }
 }
