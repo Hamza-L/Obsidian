@@ -360,6 +360,51 @@ static bool create_dxgi_buffers_and_import_to_vulkan(Swapchain *sc) {
     return true;
 }
 
+static IDXGIAdapter *find_adapter_matching_vulkan_device(VkPhysicalDevice phys) {
+    if (!vkGetPhysicalDeviceProperties2) {
+        return NULL;
+    }
+
+    VkPhysicalDeviceIDProperties id_props;
+    memset(&id_props, 0, sizeof(id_props));
+    id_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES;
+
+    VkPhysicalDeviceProperties2 props2;
+    memset(&props2, 0, sizeof(props2));
+    props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+    props2.pNext = &id_props;
+
+    vkGetPhysicalDeviceProperties2(phys, &props2);
+    if (!id_props.deviceLUIDValid) {
+        return NULL;
+    }
+
+    IDXGIFactory2 *factory = NULL;
+    HRESULT hr = CreateDXGIFactory1(&IID_IDXGIFactory2_NE, (void **)&factory);
+    if (FAILED(hr) || !factory) {
+        LOG_ERROR("CreateDXGIFactory1 failed (hr=0x%08lx)", hr);
+        return NULL;
+    }
+
+    IDXGIAdapter *match = NULL;
+    for (UINT i = 0; !match; i++) {
+        IDXGIAdapter1 *adapter = NULL;
+        if (IDXGIFactory2_EnumAdapters1(factory, i, &adapter) != S_OK || !adapter) {
+            break;
+        }
+
+        DXGI_ADAPTER_DESC1 adapter_desc;
+        if (SUCCEEDED(IDXGIAdapter1_GetDesc1(adapter, &adapter_desc)) &&
+            memcmp(&adapter_desc.AdapterLuid, id_props.deviceLUID, VK_LUID_SIZE) == 0) {
+            match = (IDXGIAdapter *)adapter;
+        } else {
+            IDXGIAdapter1_Release(adapter);
+        }
+    }
+    IDXGIFactory2_Release(factory);
+    return match;
+}
+
 static bool dxgi_init(OWindow *window, Swapchain *sc) {
     HRESULT hr;
 
@@ -382,15 +427,24 @@ static bool dxgi_init(OWindow *window, Swapchain *sc) {
         D3D_FEATURE_LEVEL feature_level = D3D_FEATURE_LEVEL_11_0;
         UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
 
+        IDXGIAdapter *adapter = find_adapter_matching_vulkan_device(sc->phys);
+        if (!adapter) {
+            LOG_WARN("no DXGI adapter matches the Vulkan device LUID, using the default adapter");
+        }
+
         hr = D3D11CreateDevice(
-            NULL,
-            D3D_DRIVER_TYPE_HARDWARE,
+            adapter,
+            adapter ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE,
             NULL,
             flags,
             &feature_level, 1,
             D3D11_SDK_VERSION,
             &sc->d3dDevice,
             NULL, NULL);
+
+        if (adapter) {
+            IDXGIAdapter_Release(adapter);
+        }
 
         if (FAILED(hr) || !sc->d3dDevice) {
             LOG_ERROR("D3D11CreateDevice failed (hr=0x%08lx)", hr);
