@@ -178,8 +178,9 @@ VkContext *vk_context_create(VkContextDesc desc) {
     }
 
     VkPhysicalDevice physDevices[MAX_PHYS_DEVICES];
+    if (npd > MAX_PHYS_DEVICES) npd = MAX_PHYS_DEVICES;
     res = vkEnumeratePhysicalDevices(ctx.instance, &npd, physDevices);
-    if (res != VK_SUCCESS) {
+    if (res != VK_SUCCESS && res != VK_INCOMPLETE) {
         LOG_ERROR("vkEnumeratePhysicalDevices failed or no devices (vr=%d)", (int)res);
         goto done;
     }
