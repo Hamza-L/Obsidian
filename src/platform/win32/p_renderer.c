@@ -10,14 +10,15 @@
 #include <vulkan/vulkan.h>
 
 struct ORenderer {
-    bool isOnline;
     VkContext* ctx;
 };
 
 ORenderer *renderer_create(void) {
     ORenderer* renderer = malloc(sizeof(ORenderer));
-    if (!renderer) LOG_ERROR("renderer_create(): Failed to alloc memory");
-    *renderer = (ORenderer){.isOnline = true, .ctx = NULL};
+    if (!renderer) {
+        LOG_ERROR("renderer_create(): Failed to alloc memory");
+        return NULL;
+    }
 
     renderer->ctx = vk_context_create((VkContextDesc){
         .enableValidationLayer = true,
@@ -36,7 +37,11 @@ ORenderer *renderer_create(void) {
         }
     });
 
-    if (!renderer->ctx) LOG_ERROR("renderer_create(): Failed to create vulkan context");
+    if (!renderer->ctx) {
+        LOG_ERROR("renderer_create(): Failed to create vulkan context");
+        free(renderer);
+        return NULL;
+    }
     return renderer;
 }
 
