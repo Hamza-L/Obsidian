@@ -6,23 +6,34 @@
  * are shared with Vulkan via VK_KHR_external_memory_win32 so the renderer
  * draws into them with its existing pipeline.
  *
- * Sync model (Option A — CPU fence wait):
+ * Sync model (CPU fence wait):
  *   The renderer submits to Vulkan with a fence. Before calling Present1()
  *   we wait on that fence to guarantee the GPU has finished rendering. This
  *   adds ~0.1ms of CPU latency but is simple and correct.
  */
+#include "ne_swapchain.h"
 
 #define WIN32_LEAN_AND_MEAN
 #define COBJMACROS
 #include <windows.h>
 #include <d3d11.h>
 #include <dxgi1_4.h>
+#include <initguid.h>
+
+#include "p_vulkan_loader.h"
+#include "p_vulkan_limits.h"
+
+#include "o_window.h"
+#include "o_log.h"
+
+#include <stdlib.h>
+#include <string.h>
 
 /*
- * dcomp.h is C++ only (uses references, overloads). We load DCompositionCreateDevice
- * dynamically and define the minimal COM interfaces in C ourselves.
+ * dcomp.h is C++ only (uses references, overloads). We load
+ * DCompositionCreateDevice dynamically and define the minimal COM interfaces in
+ * C ourselves.
  */
-#include <initguid.h>
 
 /* DXGI GUIDs we reference (defined here to avoid linking dxguid.lib) */
 DEFINE_GUID(IID_IDXGIDevice_NE,      0x54ec77fa, 0x1377, 0x44e6, 0x8c, 0x32, 0x88, 0xfd, 0x5f, 0x44, 0xc8, 0x4c);
@@ -90,128 +101,80 @@ struct IDCompositionVisual_C { const IDCompositionVisualVtbl *lpVtbl; };
 
 typedef HRESULT (WINAPI *PFN_DCompositionCreateDevice)(void *dxgiDevice, REFIID iid, void **dcompositionDevice);
 
-#define VK_NO_PROTOTYPES
-#define VK_USE_PLATFORM_WIN32_KHR
-#include <vulkan/vulkan.h>
-
-#include "ne_swapchain.h"
-#include "ne_log.h"
-#include "ne_window.h"
-
-#include <stdlib.h>
-#include <string.h>
-
-/* ── Vulkan function pointers (resolved by the renderer) ───────────────── */
-
-extern PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
-extern PFN_vkCreateImage vkCreateImage;
-extern PFN_vkDestroyImage vkDestroyImage;
-extern PFN_vkGetImageMemoryRequirements vkGetImageMemoryRequirements;
-extern PFN_vkAllocateMemory vkAllocateMemory;
-extern PFN_vkFreeMemory vkFreeMemory;
-extern PFN_vkBindImageMemory vkBindImageMemory;
-extern PFN_vkCreateImageView vkCreateImageView;
-extern PFN_vkDestroyImageView vkDestroyImageView;
-extern PFN_vkDeviceWaitIdle vkDeviceWaitIdle;
-extern PFN_vkCreateFence vkCreateFence;
-extern PFN_vkDestroyFence vkDestroyFence;
-extern PFN_vkWaitForFences vkWaitForFences;
-extern PFN_vkResetFences vkResetFences;
-extern PFN_vkGetPhysicalDeviceMemoryProperties vkGetPhysicalDeviceMemoryProperties;
-
 /* VK_KHR_external_memory_win32 function (loaded at creation) */
 static PFN_vkGetMemoryWin32HandlePropertiesKHR s_vkGetMemoryWin32HandlePropertiesKHR;
 
-/* ── Constants ─────────────────────────────────────────────────────────── */
-
-#define NE_DXGI_BUFFER_COUNT 3
-
-/* ── Backend-specific data ─────────────────────────────────────────────── */
-
-typedef struct NESwapchainDXGI {
-    NESwapchain base;
-
+struct Swapchain {
     VkDevice device;
     VkPhysicalDevice phys;
     VkInstance instance;
-    NEWindow *window;
     bool vsync;
 
     /* D3D11 (minimal — used only for DXGI resource ownership) */
-    ID3D11Device *d3d_device;
-    IDXGISwapChain1 *dxgi_swapchain;
+    ID3D11Device *d3dDevice;
+    IDXGISwapChain1 *dxgiSwapchain;
 
     /* DirectComposition */
-    IDCompositionDevice_C *dcomp_device;
-    IDCompositionTarget_C *dcomp_target;
-    IDCompositionVisual_C *dcomp_visual;
-    HMODULE dcomp_lib;
+    IDCompositionDevice_C *dcompDevice;
+    IDCompositionTarget_C *dcompTarget;
+    IDCompositionVisual_C *dcompVisual;
+    HMODULE dcompLib;
+
+    /* image info */
+    VkFormat format;
+    VkExtent2D extent;
 
     /* Intermediate shared textures (Vulkan renders into these, D3D11 copies to swapchain) */
-    ID3D11Texture2D *shared_textures[NE_DXGI_BUFFER_COUNT];
-    HANDLE shared_handles[NE_DXGI_BUFFER_COUNT];
-    VkDeviceMemory vk_memories[NE_DXGI_BUFFER_COUNT];
-    ID3D11DeviceContext *d3d_context;
+    ID3D11Texture2D *sharedTextures[SWAPCHAIN_IMAGE_COUNT];
+    HANDLE sharedHandles[SWAPCHAIN_IMAGE_COUNT];
+    VkImage images[SWAPCHAIN_IMAGE_COUNT];
+    VkImageView imageViews[SWAPCHAIN_IMAGE_COUNT];
+    VkDeviceMemory vkMemories[SWAPCHAIN_IMAGE_COUNT];
+    ID3D11DeviceContext *d3dContext;
 
     /* Sync: CPU fence for present safety */
-    VkFence present_fence;
-    bool present_fence_submitted;
+    VkFence presentFence;
+    bool presentFenceSubmitted;
+    bool needs_recreate;
 
-    VkPhysicalDeviceMemoryProperties mem_props;
-} NESwapchainDXGI;
+    uint32_t acquiredImageIndex;
 
-/* ── Helpers ───────────────────────────────────────────────────────────── */
+    VkPhysicalDeviceMemoryProperties memProps;
+};
 
-static uint32_t ne_dxgi_find_memory_type(NESwapchainDXGI *sc, uint32_t type_filter,
-                                          VkMemoryPropertyFlags properties) {
-    for (uint32_t i = 0; i < sc->mem_props.memoryTypeCount; i++) {
+static uint32_t find_memory_type(Swapchain *sc, uint32_t type_filter, VkMemoryPropertyFlags properties) {
+    for (uint32_t i = 0; i < sc->memProps.memoryTypeCount; i++) {
         if ((type_filter & (1u << i)) &&
-            (sc->mem_props.memoryTypes[i].propertyFlags & properties) == properties) {
+            (sc->memProps.memoryTypes[i].propertyFlags & properties) == properties) {
             return i;
         }
     }
     return UINT32_MAX;
 }
 
-static void ne_dxgi_release_vk_images(NESwapchainDXGI *sc) {
-    NESwapchain *base = &sc->base;
+static void release_vk_images(Swapchain *sc) {
+    for (uint32_t i = 0; i < SWAPCHAIN_IMAGE_COUNT; i++) {
+        if (sc->vkMemories[i] != VK_NULL_HANDLE) {
+            vkFreeMemory(sc->device, sc->vkMemories[i], NULL);
+            sc->vkMemories[i] = VK_NULL_HANDLE;
+        }
+        if (sc->sharedHandles[i]) {
+            CloseHandle(sc->sharedHandles[i]);
+            sc->sharedHandles[i] = NULL;
+        }
+        if (sc->sharedTextures[i]) {
+            ID3D11Texture2D_Release(sc->sharedTextures[i]);
+            sc->sharedTextures[i] = NULL;
+        }
 
-    if (base->image_views) {
-        for (uint32_t i = 0; i < base->image_count; i++) {
-            if (base->image_views[i] != VK_NULL_HANDLE) {
-                vkDestroyImageView(sc->device, base->image_views[i], NULL);
-            }
+        if (sc->images[i] != VK_NULL_HANDLE) {
+            vkDestroyImage(sc->device, sc->images[i], NULL);
         }
-        free(base->image_views);
-        base->image_views = NULL;
-    }
 
-    if (base->images) {
-        for (uint32_t i = 0; i < base->image_count; i++) {
-            if (base->images[i] != VK_NULL_HANDLE) {
-                vkDestroyImage(sc->device, base->images[i], NULL);
-            }
-        }
-        free(base->images);
-        base->images = NULL;
-    }
-
-    for (uint32_t i = 0; i < NE_DXGI_BUFFER_COUNT; i++) {
-        if (sc->vk_memories[i] != VK_NULL_HANDLE) {
-            vkFreeMemory(sc->device, sc->vk_memories[i], NULL);
-            sc->vk_memories[i] = VK_NULL_HANDLE;
-        }
-        if (sc->shared_handles[i]) {
-            CloseHandle(sc->shared_handles[i]);
-            sc->shared_handles[i] = NULL;
-        }
-        if (sc->shared_textures[i]) {
-            ID3D11Texture2D_Release(sc->shared_textures[i]);
-            sc->shared_textures[i] = NULL;
+        if (sc->imageViews[i] != VK_NULL_HANDLE) {
+            vkDestroyImageView(sc->device, sc->imageViews[i], NULL);
         }
     }
-
-    base->image_count = 0;
 }
 
 /*
@@ -226,27 +189,20 @@ static void ne_dxgi_release_vk_images(NESwapchainDXGI *sc) {
  *   D3D11CreateTexture2D(SHARED_NTHANDLE) → CreateSharedHandle → HANDLE
  *   VkImportMemoryWin32HandleInfoKHR → vkAllocateMemory → vkBindImageMemory
  */
-static bool ne_dxgi_import_buffers(NESwapchainDXGI *sc) {
-    NESwapchain *base = &sc->base;
+static bool create_dxgi_buffers_and_import_to_vulkan(Swapchain *sc) {
     HRESULT hr;
 
-    base->images = (VkImage *)calloc(NE_DXGI_BUFFER_COUNT, sizeof(VkImage));
-    base->image_views = (VkImageView *)calloc(NE_DXGI_BUFFER_COUNT, sizeof(VkImageView));
-    if (!base->images || !base->image_views) return false;
-
-    base->image_count = NE_DXGI_BUFFER_COUNT;
-
     /* Get D3D11 device context for copy operations at present time */
-    if (!sc->d3d_context) {
-        ID3D11Device_GetImmediateContext(sc->d3d_device, &sc->d3d_context);
+    if (!sc->d3dContext) {
+        ID3D11Device_GetImmediateContext(sc->d3dDevice, &sc->d3dContext);
     }
 
-    for (uint32_t i = 0; i < NE_DXGI_BUFFER_COUNT; i++) {
+    for (uint32_t i = 0; i < SWAPCHAIN_IMAGE_COUNT; i++) {
         /* Create a shared D3D11 texture that Vulkan can import */
         D3D11_TEXTURE2D_DESC tex_desc;
         memset(&tex_desc, 0, sizeof(tex_desc));
-        tex_desc.Width = base->extent.width;
-        tex_desc.Height = base->extent.height;
+        tex_desc.Width = sc->extent.width;
+        tex_desc.Height = sc->extent.height;
         tex_desc.MipLevels = 1;
         tex_desc.ArraySize = 1;
         tex_desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
@@ -255,17 +211,17 @@ static bool ne_dxgi_import_buffers(NESwapchainDXGI *sc) {
         tex_desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
         tex_desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
 
-        hr = ID3D11Device_CreateTexture2D(sc->d3d_device, &tex_desc, NULL, &sc->shared_textures[i]);
-        if (FAILED(hr) || !sc->shared_textures[i]) {
-            NE_LOG_ERROR("D3D11CreateTexture2D (shared %u) failed (hr=0x%08lx)", i, hr);
+        hr = ID3D11Device_CreateTexture2D(sc->d3dDevice, &tex_desc, NULL, &sc->sharedTextures[i]);
+        if (FAILED(hr) || !sc->sharedTextures[i]) {
+            LOG_ERROR("D3D11CreateTexture2D (shared %u) failed (hr=0x%08lx)", i, hr);
             return false;
         }
 
         /* Get shared handle from the texture */
         IDXGIResource1 *dxgi_resource = NULL;
-        hr = ID3D11Texture2D_QueryInterface(sc->shared_textures[i], &IID_IDXGIResource1_NE, (void **)&dxgi_resource);
+        hr = ID3D11Texture2D_QueryInterface(sc->sharedTextures[i], &IID_IDXGIResource1_NE, (void **)&dxgi_resource);
         if (FAILED(hr) || !dxgi_resource) {
-            NE_LOG_ERROR("QueryInterface(IDXGIResource1) for shared tex %u failed (hr=0x%08lx)", i, hr);
+            LOG_ERROR("QueryInterface(IDXGIResource1) for shared tex %u failed (hr=0x%08lx)", i, hr);
             return false;
         }
 
@@ -279,11 +235,11 @@ static bool ne_dxgi_import_buffers(NESwapchainDXGI *sc) {
         IDXGIResource1_Release(dxgi_resource);
 
         if (FAILED(hr) || !shared_handle) {
-            NE_LOG_ERROR("CreateSharedHandle(%u) failed (hr=0x%08lx)", i, hr);
+            LOG_ERROR("CreateSharedHandle(%u) failed (hr=0x%08lx)", i, hr);
             return false;
         }
 
-        sc->shared_handles[i] = shared_handle;
+        sc->sharedHandles[i] = shared_handle;
 
         /* Query what Vulkan memory types are compatible with this handle */
         VkMemoryWin32HandlePropertiesKHR handle_props;
@@ -297,7 +253,7 @@ static bool ne_dxgi_import_buffers(NESwapchainDXGI *sc) {
             &handle_props);
 
         if (vr != VK_SUCCESS) {
-            NE_LOG_ERROR("vkGetMemoryWin32HandlePropertiesKHR(%u) failed (vr=%d)", i, (int)vr);
+            LOG_ERROR("vkGetMemoryWin32HandlePropertiesKHR(%u) failed (vr=%d)", i, (int)vr);
             return false;
         }
 
@@ -312,9 +268,9 @@ static bool ne_dxgi_import_buffers(NESwapchainDXGI *sc) {
         img_ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         img_ci.pNext = &ext_img_ci;
         img_ci.imageType = VK_IMAGE_TYPE_2D;
-        img_ci.format = base->format;
-        img_ci.extent.width = base->extent.width;
-        img_ci.extent.height = base->extent.height;
+        img_ci.format = sc->format;
+        img_ci.extent.width = sc->extent.width;
+        img_ci.extent.height = sc->extent.height;
         img_ci.extent.depth = 1;
         img_ci.mipLevels = 1;
         img_ci.arrayLayers = 1;
@@ -324,28 +280,28 @@ static bool ne_dxgi_import_buffers(NESwapchainDXGI *sc) {
         img_ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         img_ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-        vr = vkCreateImage(sc->device, &img_ci, NULL, &base->images[i]);
+        vr = vkCreateImage(sc->device, &img_ci, NULL, &sc->images[i]);
         if (vr != VK_SUCCESS) {
-            NE_LOG_ERROR("vkCreateImage (DXGI import %u) failed (vr=%d)", i, (int)vr);
+            LOG_ERROR("vkCreateImage (DXGI import %u) failed (vr=%d)", i, (int)vr);
             return false;
         }
 
         /* Get memory requirements to know allocation size */
         VkMemoryRequirements mem_req;
-        vkGetImageMemoryRequirements(sc->device, base->images[i], &mem_req);
+        vkGetImageMemoryRequirements(sc->device, sc->images[i], &mem_req);
 
         /* Find a compatible memory type from what the handle supports */
-        uint32_t mem_type = ne_dxgi_find_memory_type(
+        uint32_t mem_type = find_memory_type(
             sc,
             handle_props.memoryTypeBits & mem_req.memoryTypeBits,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
         if (mem_type == UINT32_MAX) {
             /* Fallback: try any compatible type without requiring device-local */
-            mem_type = ne_dxgi_find_memory_type(sc, handle_props.memoryTypeBits & mem_req.memoryTypeBits, 0);
+            mem_type = find_memory_type(sc, handle_props.memoryTypeBits & mem_req.memoryTypeBits, 0);
         }
         if (mem_type == UINT32_MAX) {
-            NE_LOG_ERROR("no compatible memory type for DXGI import (buffer %u)", i);
+            LOG_ERROR("no compatible memory type for DXGI import (buffer %u)", i);
             return false;
         }
 
@@ -360,7 +316,7 @@ static bool ne_dxgi_import_buffers(NESwapchainDXGI *sc) {
         memset(&dedicated_info, 0, sizeof(dedicated_info));
         dedicated_info.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
         dedicated_info.pNext = &import_info;
-        dedicated_info.image = base->images[i];
+        dedicated_info.image = sc->images[i];
 
         VkMemoryAllocateInfo alloc_info;
         memset(&alloc_info, 0, sizeof(alloc_info));
@@ -369,15 +325,15 @@ static bool ne_dxgi_import_buffers(NESwapchainDXGI *sc) {
         alloc_info.allocationSize = mem_req.size;
         alloc_info.memoryTypeIndex = mem_type;
 
-        vr = vkAllocateMemory(sc->device, &alloc_info, NULL, &sc->vk_memories[i]);
+        vr = vkAllocateMemory(sc->device, &alloc_info, NULL, &sc->vkMemories[i]);
         if (vr != VK_SUCCESS) {
-            NE_LOG_ERROR("vkAllocateMemory (DXGI import %u) failed (vr=%d)", i, (int)vr);
+            LOG_ERROR("vkAllocateMemory (DXGI import %u) failed (vr=%d)", i, (int)vr);
             return false;
         }
 
-        vr = vkBindImageMemory(sc->device, base->images[i], sc->vk_memories[i], 0);
+        vr = vkBindImageMemory(sc->device, sc->images[i], sc->vkMemories[i], 0);
         if (vr != VK_SUCCESS) {
-            NE_LOG_ERROR("vkBindImageMemory (DXGI import %u) failed (vr=%d)", i, (int)vr);
+            LOG_ERROR("vkBindImageMemory (DXGI import %u) failed (vr=%d)", i, (int)vr);
             return false;
         }
 
@@ -385,18 +341,18 @@ static bool ne_dxgi_import_buffers(NESwapchainDXGI *sc) {
         VkImageViewCreateInfo ivci;
         memset(&ivci, 0, sizeof(ivci));
         ivci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        ivci.image = base->images[i];
+        ivci.image = sc->images[i];
         ivci.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        ivci.format = base->format;
+        ivci.format = sc->format;
         ivci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         ivci.subresourceRange.baseMipLevel = 0;
         ivci.subresourceRange.levelCount = 1;
         ivci.subresourceRange.baseArrayLayer = 0;
         ivci.subresourceRange.layerCount = 1;
 
-        vr = vkCreateImageView(sc->device, &ivci, NULL, &base->image_views[i]);
+        vr = vkCreateImageView(sc->device, &ivci, NULL, &sc->imageViews[i]);
         if (vr != VK_SUCCESS) {
-            NE_LOG_ERROR("vkCreateImageView (DXGI import %u) failed (vr=%d)", i, (int)vr);
+            LOG_ERROR("vkCreateImageView (DXGI import %u) failed (vr=%d)", i, (int)vr);
             return false;
         }
     }
@@ -404,27 +360,25 @@ static bool ne_dxgi_import_buffers(NESwapchainDXGI *sc) {
     return true;
 }
 
-static bool ne_dxgi_build(NESwapchainDXGI *sc) {
-    NESwapchain *base = &sc->base;
+static bool dxgi_init(OWindow *window, Swapchain *sc) {
     HRESULT hr;
 
-    HWND hwnd = (HWND)ne_window_get_native_handle(sc->window, NE_NATIVE_HANDLE_WIN32_HWND);
+    HWND hwnd = (HWND)window_native_handle(window);
     if (!hwnd) {
-        NE_LOG_ERROR("ne_swapchain_dxgi: failed to get HWND");
+        LOG_ERROR("ne_swapchain_dxgi: failed to get HWND");
         return false;
     }
 
     int32_t fb_w = 0, fb_h = 0;
-    if (!ne_window_get_framebuffer_size(sc->window, &fb_w, &fb_h)) return false;
+    if (!window_get_content_size(window, &fb_w, &fb_h)) return false;
     if (fb_w <= 0 || fb_h <= 0) return false;
 
-    base->extent.width = (uint32_t)fb_w;
-    base->extent.height = (uint32_t)fb_h;
-    base->format = VK_FORMAT_B8G8R8A8_UNORM;
+    sc->extent.width = (uint32_t)fb_w;
+    sc->extent.height = (uint32_t)fb_h;
+    sc->format = VK_FORMAT_B8G8R8A8_UNORM;
 
     /* ── Create D3D11 device (minimal, for DXGI ownership) ──────────── */
-
-    if (!sc->d3d_device) {
+    if (!sc->d3dDevice) {
         D3D_FEATURE_LEVEL feature_level = D3D_FEATURE_LEVEL_11_0;
         UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
 
@@ -435,22 +389,21 @@ static bool ne_dxgi_build(NESwapchainDXGI *sc) {
             flags,
             &feature_level, 1,
             D3D11_SDK_VERSION,
-            &sc->d3d_device,
+            &sc->d3dDevice,
             NULL, NULL);
 
-        if (FAILED(hr) || !sc->d3d_device) {
-            NE_LOG_ERROR("D3D11CreateDevice failed (hr=0x%08lx)", hr);
+        if (FAILED(hr) || !sc->d3dDevice) {
+            LOG_ERROR("D3D11CreateDevice failed (hr=0x%08lx)", hr);
             return false;
         }
     }
 
     /* ── Create DXGI swapchain ──────────────────────────────────────── */
-
-    if (!sc->dxgi_swapchain) {
+    if (!sc->dxgiSwapchain) {
         IDXGIDevice *dxgi_device = NULL;
-        hr = ID3D11Device_QueryInterface(sc->d3d_device, &IID_IDXGIDevice_NE, (void **)&dxgi_device);
+        hr = ID3D11Device_QueryInterface(sc->d3dDevice, &IID_IDXGIDevice_NE, (void **)&dxgi_device);
         if (FAILED(hr)) {
-            NE_LOG_ERROR("QueryInterface(IDXGIDevice) failed (hr=0x%08lx)", hr);
+            LOG_ERROR("QueryInterface(IDXGIDevice) failed (hr=0x%08lx)", hr);
             return false;
         }
 
@@ -458,7 +411,7 @@ static bool ne_dxgi_build(NESwapchainDXGI *sc) {
         hr = IDXGIDevice_GetAdapter(dxgi_device, &adapter);
         IDXGIDevice_Release(dxgi_device);
         if (FAILED(hr)) {
-            NE_LOG_ERROR("IDXGIDevice::GetAdapter failed (hr=0x%08lx)", hr);
+            LOG_ERROR("IDXGIDevice::GetAdapter failed (hr=0x%08lx)", hr);
             return false;
         }
 
@@ -466,196 +419,180 @@ static bool ne_dxgi_build(NESwapchainDXGI *sc) {
         hr = IDXGIAdapter_GetParent(adapter, &IID_IDXGIFactory2_NE, (void **)&factory);
         IDXGIAdapter_Release(adapter);
         if (FAILED(hr)) {
-            NE_LOG_ERROR("IDXGIAdapter::GetParent(IDXGIFactory2) failed (hr=0x%08lx)", hr);
+            LOG_ERROR("IDXGIAdapter::GetParent(IDXGIFactory2) failed (hr=0x%08lx)", hr);
             return false;
         }
 
         DXGI_SWAP_CHAIN_DESC1 scd;
         memset(&scd, 0, sizeof(scd));
-        scd.Width = base->extent.width;
-        scd.Height = base->extent.height;
+        scd.Width = sc->extent.width;
+        scd.Height = sc->extent.height;
         scd.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
         scd.SampleDesc.Count = 1;
         scd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-        scd.BufferCount = NE_DXGI_BUFFER_COUNT;
+        scd.BufferCount = SWAPCHAIN_IMAGE_COUNT;
         scd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
         scd.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
         scd.Flags = 0;
 
         hr = IDXGIFactory2_CreateSwapChainForComposition(
             factory,
-            (IUnknown *)sc->d3d_device,
+            (IUnknown *)sc->d3dDevice,
             &scd,
             NULL,
-            &sc->dxgi_swapchain);
+            &sc->dxgiSwapchain);
         IDXGIFactory2_Release(factory);
 
-        if (FAILED(hr) || !sc->dxgi_swapchain) {
-            NE_LOG_ERROR("CreateSwapChainForComposition failed (hr=0x%08lx)", hr);
+        if (FAILED(hr) || !sc->dxgiSwapchain) {
+            LOG_ERROR("CreateSwapChainForComposition failed (hr=0x%08lx)", hr);
             return false;
         }
     }
 
     /* ── Setup DirectComposition (loaded dynamically, C interfaces) ─── */
-
-    if (!sc->dcomp_device) {
-        if (!sc->dcomp_lib) {
-            sc->dcomp_lib = LoadLibraryA("dcomp.dll");
-            if (!sc->dcomp_lib) {
-                NE_LOG_ERROR("failed to load dcomp.dll");
+    if (!sc->dcompDevice) {
+        if (!sc->dcompLib) {
+            sc->dcompLib = LoadLibraryA("dcomp.dll");
+            if (!sc->dcompLib) {
+                LOG_ERROR("failed to load dcomp.dll");
                 return false;
             }
         }
 
-        PFN_DCompositionCreateDevice pfnCreate =
-            (PFN_DCompositionCreateDevice)GetProcAddress(sc->dcomp_lib, "DCompositionCreateDevice");
+        PFN_DCompositionCreateDevice pfnCreate = (PFN_DCompositionCreateDevice)GetProcAddress(sc->dcompLib, "DCompositionCreateDevice");
         if (!pfnCreate) {
-            NE_LOG_ERROR("failed to get DCompositionCreateDevice");
+            LOG_ERROR("failed to get DCompositionCreateDevice");
             return false;
         }
 
-        hr = pfnCreate(NULL, &IID_IDCompositionDevice_NE, (void **)&sc->dcomp_device);
-        if (FAILED(hr) || !sc->dcomp_device) {
-            NE_LOG_ERROR("DCompositionCreateDevice failed (hr=0x%08lx)", hr);
+        hr = pfnCreate(NULL, &IID_IDCompositionDevice_NE, (void **)&sc->dcompDevice);
+        if (FAILED(hr) || !sc->dcompDevice) {
+            LOG_ERROR("DCompositionCreateDevice failed (hr=0x%08lx)", hr);
             return false;
         }
 
-        hr = sc->dcomp_device->lpVtbl->CreateTargetForHwnd(sc->dcomp_device, hwnd, TRUE, &sc->dcomp_target);
-        if (FAILED(hr) || !sc->dcomp_target) {
-            NE_LOG_ERROR("CreateTargetForHwnd failed (hr=0x%08lx)", hr);
+        hr = sc->dcompDevice->lpVtbl->CreateTargetForHwnd(sc->dcompDevice, hwnd, TRUE, &sc->dcompTarget);
+        if (FAILED(hr) || !sc->dcompTarget) {
+            LOG_ERROR("CreateTargetForHwnd failed (hr=0x%08lx)", hr);
             return false;
         }
 
-        hr = sc->dcomp_device->lpVtbl->CreateVisual(sc->dcomp_device, &sc->dcomp_visual);
-        if (FAILED(hr) || !sc->dcomp_visual) {
-            NE_LOG_ERROR("CreateVisual failed (hr=0x%08lx)", hr);
+        hr = sc->dcompDevice->lpVtbl->CreateVisual(sc->dcompDevice, &sc->dcompVisual);
+        if (FAILED(hr) || !sc->dcompVisual) {
+            LOG_ERROR("CreateVisual failed (hr=0x%08lx)", hr);
             return false;
         }
 
-        hr = sc->dcomp_visual->lpVtbl->SetContent(sc->dcomp_visual, (IUnknown *)sc->dxgi_swapchain);
+        hr = sc->dcompVisual->lpVtbl->SetContent(sc->dcompVisual, (IUnknown *)sc->dxgiSwapchain);
         if (FAILED(hr)) {
-            NE_LOG_ERROR("IDCompositionVisual::SetContent failed (hr=0x%08lx)", hr);
+            LOG_ERROR("IDCompositionVisual::SetContent failed (hr=0x%08lx)", hr);
             return false;
         }
 
-        hr = sc->dcomp_target->lpVtbl->SetRoot(sc->dcomp_target, sc->dcomp_visual);
+        hr = sc->dcompTarget->lpVtbl->SetRoot(sc->dcompTarget, sc->dcompVisual);
         if (FAILED(hr)) {
-            NE_LOG_ERROR("IDCompositionTarget::SetRoot failed (hr=0x%08lx)", hr);
+            LOG_ERROR("IDCompositionTarget::SetRoot failed (hr=0x%08lx)", hr);
             return false;
         }
 
-        hr = sc->dcomp_device->lpVtbl->Commit(sc->dcomp_device);
+        hr = sc->dcompDevice->lpVtbl->Commit(sc->dcompDevice);
         if (FAILED(hr)) {
-            NE_LOG_ERROR("IDCompositionDevice::Commit failed (hr=0x%08lx)", hr);
+            LOG_ERROR("IDCompositionDevice::Commit failed (hr=0x%08lx)", hr);
             return false;
         }
     }
 
     /* ── Load VK_KHR_external_memory_win32 function ────────────────── */
-
     if (!s_vkGetMemoryWin32HandlePropertiesKHR) {
-        PFN_vkGetDeviceProcAddr vkGetDeviceProcAddr_local =
-            (PFN_vkGetDeviceProcAddr)vkGetInstanceProcAddr(sc->instance, "vkGetDeviceProcAddr");
+        PFN_vkGetDeviceProcAddr vkGetDeviceProcAddr_local = (PFN_vkGetDeviceProcAddr)vkGetInstanceProcAddr(sc->instance, "vkGetDeviceProcAddr");
         if (vkGetDeviceProcAddr_local) {
-            s_vkGetMemoryWin32HandlePropertiesKHR =
-                (PFN_vkGetMemoryWin32HandlePropertiesKHR)vkGetDeviceProcAddr_local(
-                    sc->device, "vkGetMemoryWin32HandlePropertiesKHR");
+            s_vkGetMemoryWin32HandlePropertiesKHR = (PFN_vkGetMemoryWin32HandlePropertiesKHR)vkGetDeviceProcAddr_local(sc->device, "vkGetMemoryWin32HandlePropertiesKHR");
         }
         if (!s_vkGetMemoryWin32HandlePropertiesKHR) {
-            NE_LOG_ERROR("failed to load vkGetMemoryWin32HandlePropertiesKHR "
-                         "(VK_KHR_external_memory_win32 not available?)");
+            LOG_ERROR("failed to load vkGetMemoryWin32HandlePropertiesKHR \n(VK_KHR_external_memory_win32 not available?)");
             return false;
         }
     }
 
-    /* ── Import DXGI buffers into Vulkan ────────────────────────────── */
-
-    if (!ne_dxgi_import_buffers(sc)) {
+    if (!create_dxgi_buffers_and_import_to_vulkan(sc)) {
         return false;
     }
 
     /* ── Create present fence ──────────────────────────────────────── */
-
-    if (sc->present_fence == VK_NULL_HANDLE) {
+    if (sc->presentFence == VK_NULL_HANDLE) {
         VkFenceCreateInfo fci;
         memset(&fci, 0, sizeof(fci));
         fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
         fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-        VkResult vr = vkCreateFence(sc->device, &fci, NULL, &sc->present_fence);
+        VkResult vr = vkCreateFence(sc->device, &fci, NULL, &sc->presentFence);
         if (vr != VK_SUCCESS) {
-            NE_LOG_ERROR("vkCreateFence (present) failed (vr=%d)", (int)vr);
+            LOG_ERROR("vkCreateFence (present) failed (vr=%d)", (int)vr);
             return false;
         }
     }
 
-    base->needs_recreate = false;
+    sc->needs_recreate = false;
     return true;
 }
 
 /* ── Interface implementation ──────────────────────────────────────────── */
 
-static void ne_swapchain_dxgi_destroy(NESwapchain *iface) {
-    NESwapchainDXGI *sc = (NESwapchainDXGI *)iface;
-
+void swapchain_destroy(Swapchain *sc) {
     vkDeviceWaitIdle(sc->device);
 
-    ne_dxgi_release_vk_images(sc);
+    release_vk_images(sc);
 
-    if (sc->present_fence != VK_NULL_HANDLE) {
-        vkDestroyFence(sc->device, sc->present_fence, NULL);
-        sc->present_fence = VK_NULL_HANDLE;
+    if (sc->presentFence != VK_NULL_HANDLE) {
+        vkDestroyFence(sc->device, sc->presentFence, NULL);
+        sc->presentFence = VK_NULL_HANDLE;
     }
 
-    if (sc->d3d_context) { ID3D11DeviceContext_Release(sc->d3d_context); sc->d3d_context = NULL; }
-    if (sc->dcomp_visual) { sc->dcomp_visual->lpVtbl->Release(sc->dcomp_visual); sc->dcomp_visual = NULL; }
-    if (sc->dcomp_target) { sc->dcomp_target->lpVtbl->Release(sc->dcomp_target); sc->dcomp_target = NULL; }
-    if (sc->dcomp_device) { sc->dcomp_device->lpVtbl->Release(sc->dcomp_device); sc->dcomp_device = NULL; }
-    if (sc->dcomp_lib) { FreeLibrary(sc->dcomp_lib); sc->dcomp_lib = NULL; }
-    if (sc->dxgi_swapchain) { IDXGISwapChain1_Release(sc->dxgi_swapchain); sc->dxgi_swapchain = NULL; }
-    if (sc->d3d_device) { ID3D11Device_Release(sc->d3d_device); sc->d3d_device = NULL; }
+    if (sc->d3dContext) { ID3D11DeviceContext_Release(sc->d3dContext); sc->d3dContext = NULL; }
+    if (sc->dcompVisual) { sc->dcompVisual->lpVtbl->Release(sc->dcompVisual); sc->dcompVisual = NULL; }
+    if (sc->dcompTarget) { sc->dcompTarget->lpVtbl->Release(sc->dcompTarget); sc->dcompTarget = NULL; }
+    if (sc->dcompDevice) { sc->dcompDevice->lpVtbl->Release(sc->dcompDevice); sc->dcompDevice = NULL; }
+    if (sc->dcompLib) { FreeLibrary(sc->dcompLib); sc->dcompLib = NULL; }
+    if (sc->dxgiSwapchain) { IDXGISwapChain1_Release(sc->dxgiSwapchain); sc->dxgiSwapchain = NULL; }
+    if (sc->d3dDevice) { ID3D11Device_Release(sc->d3dDevice); sc->d3dDevice = NULL; }
 
     free(sc);
 }
 
-static bool ne_swapchain_dxgi_recreate(NESwapchain *iface) {
-    NESwapchainDXGI *sc = (NESwapchainDXGI *)iface;
-
+bool swapchain_recreate(OWindow *window, Swapchain *sc) {
     vkDeviceWaitIdle(sc->device);
 
-    ne_dxgi_release_vk_images(sc);
+    release_vk_images(sc);
 
     int32_t fb_w = 0, fb_h = 0;
-    if (!ne_window_get_framebuffer_size(sc->window, &fb_w, &fb_h)) return false;
+    if (!window_get_content_size(window, &fb_w, &fb_h)) return false;
     if (fb_w <= 0 || fb_h <= 0) return false;
 
-    iface->extent.width = (uint32_t)fb_w;
-    iface->extent.height = (uint32_t)fb_h;
+    sc->extent.width = (uint32_t)fb_w;
+    sc->extent.height = (uint32_t)fb_h;
 
     HRESULT hr = IDXGISwapChain1_ResizeBuffers(
-        sc->dxgi_swapchain,
-        NE_DXGI_BUFFER_COUNT,
+        sc->dxgiSwapchain,
+        SWAPCHAIN_IMAGE_COUNT,
         (UINT)fb_w, (UINT)fb_h,
         DXGI_FORMAT_B8G8R8A8_UNORM,
         0);
 
     if (FAILED(hr)) {
-        NE_LOG_ERROR("IDXGISwapChain::ResizeBuffers failed (hr=0x%08lx)", hr);
+        LOG_ERROR("IDXGISwapChain::ResizeBuffers failed (hr=0x%08lx)", hr);
         return false;
     }
 
-    if (!ne_dxgi_import_buffers(sc)) {
+    if (!create_dxgi_buffers_and_import_to_vulkan(sc)) {
         return false;
     }
 
-    iface->needs_recreate = false;
+    sc->needs_recreate = false;
     return true;
 }
 
-static NESwapchainAcquireResult ne_swapchain_dxgi_acquire(NESwapchain *iface, VkSemaphore signal_sem) {
-    NESwapchainDXGI *sc = (NESwapchainDXGI *)iface;
+SwapchainAcquireResult swapchain_acquire(Swapchain *sc, VkSemaphore signal_sem) {
     (void)signal_sem;
-
     /*
      * DXGI flip model: GetCurrentBackBufferIndex() returns the index of the
      * buffer that is not currently being presented or queued for presentation.
@@ -667,26 +604,24 @@ static NESwapchainAcquireResult ne_swapchain_dxgi_acquire(NESwapchain *iface, Vk
      * already ensures the previous frame's commands are done).
      */
     IDXGISwapChain3 *sc3 = NULL;
-    HRESULT hr = sc->dxgi_swapchain->lpVtbl->QueryInterface(
-        (IDXGISwapChain1 *)sc->dxgi_swapchain, &IID_IDXGISwapChain3_NE, (void **)&sc3);
+    HRESULT hr = sc->dxgiSwapchain->lpVtbl->QueryInterface((IDXGISwapChain1 *)sc->dxgiSwapchain, &IID_IDXGISwapChain3_NE, (void **)&sc3);
     if (FAILED(hr) || !sc3) {
-        NE_LOG_ERROR("QueryInterface(IDXGISwapChain3) failed (hr=0x%08lx)", hr);
-        return NE_SWAPCHAIN_ACQUIRE_FAILED;
+        LOG_ERROR("QueryInterface(IDXGISwapChain3) failed (hr=0x%08lx)", hr);
+        return SWAPCHAIN_ACQUIRE_FAILED;
     }
 
     UINT index = sc3->lpVtbl->GetCurrentBackBufferIndex(sc3);
     sc3->lpVtbl->Release((IDXGISwapChain3 *)sc3);
 
-    if (index >= iface->image_count) {
-        return NE_SWAPCHAIN_ACQUIRE_FAILED;
+    if (index >= SWAPCHAIN_IMAGE_COUNT) {
+        return SWAPCHAIN_ACQUIRE_FAILED;
     }
 
-    iface->acquired_image_index = index;
-    return NE_SWAPCHAIN_ACQUIRE_SUCCESS;
+    sc->acquiredImageIndex = index;
+    return SWAPCHAIN_ACQUIRE_SUCCESS;
 }
 
-static NESwapchainPresentResult ne_swapchain_dxgi_present(NESwapchain *iface, VkQueue queue, VkSemaphore wait_sem, VkFence render_fence) {
-    NESwapchainDXGI *sc = (NESwapchainDXGI *)iface;
+SwapchainPresentResult swapchain_present(Swapchain *sc, VkQueue queue, VkSemaphore wait_sem, VkFence render_fence) {
     (void)queue;
     (void)wait_sem;
 
@@ -694,22 +629,22 @@ static NESwapchainPresentResult ne_swapchain_dxgi_present(NESwapchain *iface, Vk
      * Standard Vulkan WSI avoids this CPU wait and is the default demo path. */
     if (render_fence == VK_NULL_HANDLE ||
         vkWaitForFences(sc->device, 1, &render_fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS) {
-        return NE_SWAPCHAIN_PRESENT_FAILED;
+        return SWAPCHAIN_PRESENT_FAILED;
     }
 
     /* Acquire keyed mutex on the shared texture, copy to swapchain, then release */
-    uint32_t image_index = iface->acquired_image_index;
+    uint32_t image_index = sc->acquiredImageIndex;
 
     IDXGIKeyedMutex *mutex = NULL;
-    HRESULT hr = ID3D11Texture2D_QueryInterface(sc->shared_textures[image_index],
+    HRESULT hr = ID3D11Texture2D_QueryInterface(sc->sharedTextures[image_index],
         &IID_IDXGIKeyedMutex_NE, (void **)&mutex);
     if (SUCCEEDED(hr) && mutex) {
         hr = IDXGIKeyedMutex_AcquireSync(mutex, 0, 5000);
         if (SUCCEEDED(hr)) {
             ID3D11Texture2D *back_buffer = NULL;
-            hr = IDXGISwapChain1_GetBuffer(sc->dxgi_swapchain, image_index, &IID_ID3D11Texture2D_NE, (void **)&back_buffer);
+            hr = IDXGISwapChain1_GetBuffer(sc->dxgiSwapchain, image_index, &IID_ID3D11Texture2D_NE, (void **)&back_buffer);
             if (SUCCEEDED(hr) && back_buffer) {
-                ID3D11DeviceContext_CopyResource(sc->d3d_context, (ID3D11Resource *)back_buffer, (ID3D11Resource *)sc->shared_textures[image_index]);
+                ID3D11DeviceContext_CopyResource(sc->d3dContext, (ID3D11Resource *)back_buffer, (ID3D11Resource *)sc->sharedTextures[image_index]);
                 ID3D11Texture2D_Release(back_buffer);
             }
             IDXGIKeyedMutex_ReleaseSync(mutex, 0);
@@ -721,53 +656,40 @@ static NESwapchainPresentResult ne_swapchain_dxgi_present(NESwapchain *iface, Vk
     DXGI_PRESENT_PARAMETERS params;
     memset(&params, 0, sizeof(params));
 
-    hr = IDXGISwapChain1_Present1(sc->dxgi_swapchain, sync_interval, 0, &params);
+    hr = IDXGISwapChain1_Present1(sc->dxgiSwapchain, sync_interval, 0, &params);
 
     if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
-        NE_LOG_ERROR("DXGI device lost (hr=0x%08lx)", hr);
-        return NE_SWAPCHAIN_PRESENT_FAILED;
+        LOG_ERROR("DXGI device lost (hr=0x%08lx)", hr);
+        return SWAPCHAIN_PRESENT_FAILED;
     }
 
     if (FAILED(hr)) {
-        NE_LOG_ERROR("IDXGISwapChain::Present1 failed (hr=0x%08lx)", hr);
-        return NE_SWAPCHAIN_PRESENT_FAILED;
+        LOG_ERROR("IDXGISwapChain::Present1 failed (hr=0x%08lx)", hr);
+        return SWAPCHAIN_PRESENT_FAILED;
     }
 
-    return NE_SWAPCHAIN_PRESENT_SUCCESS;
+    return SWAPCHAIN_PRESENT_SUCCESS;
 }
 
-/* ── Vtable ────────────────────────────────────────────────────────────── */
-
-static const NESwapchainOps g_swapchain_dxgi_ops = {
-    .destroy  = ne_swapchain_dxgi_destroy,
-    .recreate = ne_swapchain_dxgi_recreate,
-    .acquire  = ne_swapchain_dxgi_acquire,
-    .present  = ne_swapchain_dxgi_present,
-};
-
-/* ── Public constructor ────────────────────────────────────────────────── */
-
-NESwapchain *ne_swapchain_dxgi_create(const NESwapchainDXGIDesc *desc) {
-    if (!desc || !desc->device || !desc->phys || !desc->instance || !desc->window) {
+Swapchain *swapchain_create(OWindow *window, SwapchainDesc desc) {
+    if (!desc.device || !desc.physDevice || !desc.instance || !desc.window) {
         return NULL;
     }
 
-    NESwapchainDXGI *sc = (NESwapchainDXGI *)calloc(1, sizeof(NESwapchainDXGI));
+    Swapchain *sc = (Swapchain*)calloc(1, sizeof(Swapchain));
     if (!sc) return NULL;
 
-    sc->base.ops = &g_swapchain_dxgi_ops;
-    sc->device = desc->device;
-    sc->phys = desc->phys;
-    sc->instance = desc->instance;
-    sc->window = desc->window;
-    sc->vsync = desc->vsync;
+    sc->device = desc.device;
+    sc->phys = desc.physDevice;
+    sc->instance = desc.instance;
+    sc->vsync = desc.vsync;
 
-    vkGetPhysicalDeviceMemoryProperties(sc->phys, &sc->mem_props);
+    vkGetPhysicalDeviceMemoryProperties(sc->phys, &sc->memProps);
 
-    if (!ne_dxgi_build(sc)) {
-        ne_swapchain_dxgi_destroy(&sc->base);
+    if (!dxgi_init(window, sc)) {
+        swapchain_destroy(sc);
         return NULL;
     }
 
-    return &sc->base;
+    return sc;
 }

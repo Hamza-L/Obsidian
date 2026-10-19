@@ -120,6 +120,6 @@ void *vk_get_instance(VkInstance instance, const char *name);
 void *vk_get_device(VkDevice device, const char *name);
 bool vk_load_instance_fns(VkInstance instance);
 bool vk_load_device_fns(VkDevice device);
-bool vk_load_loader(HMODULE* vulkan_lib_handle);
+bool vk_load_lib(HMODULE* vulkan_lib_handle);
 
 #endif //P_VULKAN_LOADER_H

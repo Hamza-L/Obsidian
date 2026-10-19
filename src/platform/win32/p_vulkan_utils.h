@@ -7,12 +7,17 @@
 #define VK_USE_PLATFORM_WIN32_KHR
 #include <vulkan/vulkan.h>
 
+#include "p_vulkan_limits.h"
+
+typedef struct VkContext VkContext;
+
 typedef struct {
     bool enableValidationLayer;
-    const char *requiredExts[8];
-} VkInstanceDesc;
+    const char *requiredInstanceExts[MAX_REQUESTED_INSTANCE_EXT];
+    const char *requiredDeviceExts[MAX_REQUESTED_DEVICE_EXT];
+} VkContextDesc;
 
-VkInstance vk_instance_create(VkInstanceDesc desc);
-void vk_instance_destroy(VkInstance* instance);
+VkContext *vk_context_create(VkContextDesc desc);
+void vk_context_destroy(VkContext *ctx);
 
 #endif //P_VULKAN_LAYER

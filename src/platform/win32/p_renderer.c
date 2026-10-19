@@ -11,31 +11,36 @@
 
 struct ORenderer {
     bool isOnline;
-    VkInstance instance;
+    VkContext* ctx;
 };
 
 ORenderer *renderer_create(void) {
     ORenderer* renderer = malloc(sizeof(ORenderer));
     if (!renderer) LOG_ERROR("renderer_create(): Failed to alloc memory");
-    *renderer = (ORenderer){.isOnline = true, .instance = VK_NULL_HANDLE};
+    *renderer = (ORenderer){.isOnline = true, .ctx = NULL};
 
-    renderer->instance = vk_instance_create((VkInstanceDesc){
-	    .enableValidationLayer = true,
-	    .requiredExts = {
-            VK_KHR_SURFACE_EXTENSION_NAME,
-            VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
+    renderer->ctx = vk_context_create((VkContextDesc){
+        .enableValidationLayer = true,
+        .requiredInstanceExts =
+            {
+                VK_KHR_SURFACE_EXTENSION_NAME,
+                VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
+            },
+        .requiredDeviceExts = {
+            VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+            VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
             // VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME,
             // VK_KHR_SHADER_UNTYPED_POINTERS_EXTENSION_NAME,
             // VK_KHR_DEVICE_ADDRESS_COMMANDS_EXTENSION_NAME,
             // VK_KHR_UNIFIED_IMAGE_LAYOUTS_EXTENSION_NAME
         }
-	});
+    });
 
-    if (!renderer->instance) LOG_ERROR("renderer_create(): Failed to create vulkan context");
+    if (!renderer->ctx) LOG_ERROR("renderer_create(): Failed to create vulkan context");
     return renderer;
 }
 
 void renderer_destroy(ORenderer *renderer) {
-    vk_instance_destroy(&renderer->instance);
+    vk_context_destroy(renderer->ctx);
     free(renderer);
 }

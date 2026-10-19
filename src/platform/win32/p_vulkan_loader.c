@@ -257,7 +257,7 @@ bool vk_load_device_fns(VkDevice device) {
            vkCmdDraw && vkCmdDrawIndexed && vkCmdPushConstants;
 }
 
-bool vk_load_loader(HMODULE* vulkan_lib_handle) {
+bool vk_load_lib(HMODULE* vulkan_lib_handle) {
     *vulkan_lib_handle = LoadLibraryA("vulkan-1.dll");
     if (!vulkan_lib_handle) {
         LOG_ERROR("failed to load vulkan-1.dll (Vulkan runtime not installed?)");
