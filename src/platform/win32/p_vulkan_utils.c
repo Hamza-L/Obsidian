@@ -317,8 +317,8 @@ VkContext *vk_context_create(VkContextDesc desc) {
 void vk_context_destroy(VkContext *ctx) {
     if (!ctx) return;
 
-    if (ctx->device && vkDestroyDevice) vkDestroyDevice(ctx->device, NULL);
-    if (ctx->instance && vkDestroyInstance) vkDestroyInstance(ctx->instance, NULL);
+    if (ctx->device) vkDestroyDevice(ctx->device, NULL);
+    if (ctx->instance) vkDestroyInstance(ctx->instance, NULL);
     if (ctx->vulkanLib) FreeLibrary(ctx->vulkanLib);
 
     memset(ctx, 0, sizeof(*ctx));
