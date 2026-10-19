@@ -41,7 +41,9 @@ else
 Q := @
 endif
 
-CFLAGS := -std=c99 -g -DDEBUG -Wall -Wextra -Wpedantic -Werror
+# Graphics API validation, on for debug builds. Override with `make RENDERER_VALIDATION=0`.
+RENDERER_VALIDATION ?= 1
+CFLAGS := -std=c99 -g -DDEBUG -Wall -Wextra -Wpedantic -Werror -DRENDERER_VALIDATION=$(RENDERER_VALIDATION)
 CFLAGS += -I./external
 CFLAGS += -I./include
 CFLAGS += -I./src/input
