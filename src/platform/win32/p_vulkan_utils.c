@@ -72,12 +72,16 @@ static bool device_has_extensions(VkPhysicalDevice device, const char *const *na
     return all_found;
 }
 
+static VkContext *create_failed(void) {
+    vk_context_destroy(&ctx);
+    return NULL;
+}
+
 VkContext *vk_context_create(VkContextDesc desc) {
     VkExtensionProperties *availExts = NULL;
     uint32_t nAvailExts = 0;
     VkLayerProperties *availLayers = NULL;
     uint32_t nAvailLayers = 0;
-    VkContext *result = NULL;
 
     uint32_t nReqInstanceExts = 0;
     while (nReqInstanceExts < MAX_REQUESTED_INSTANCE_EXT && desc.requiredInstanceExts[nReqInstanceExts]) { nReqInstanceExts++; }
@@ -88,7 +92,7 @@ VkContext *vk_context_create(VkContextDesc desc) {
     if (!ctx.vulkanLib) {
         if (!vk_load_lib(&ctx.vulkanLib)) {
             LOG_ERROR("vk_context_create(): Failed to load vulkan lib");
-            goto done;
+            return create_failed();
         } else {
             ctx.isInit = true;
         }
@@ -100,7 +104,7 @@ VkContext *vk_context_create(VkContextDesc desc) {
         availExts = (VkExtensionProperties *)calloc(nAvailExts, sizeof(VkExtensionProperties));
         if (!availExts){
             LOG_ERROR("vk_context_create(): failed to acquire the available exts\n");
-            goto done;
+            return create_failed();
         }
         vkEnumerateInstanceExtensionProperties(NULL, &nAvailExts, availExts);
     }
@@ -125,7 +129,9 @@ VkContext *vk_context_create(VkContextDesc desc) {
         }
         if (!found) {
             LOG_ERROR("vk_context_create: required Vulkan instance extension not available: %s", desc.requiredInstanceExts[i]);
-            goto done;
+            free(availExts);
+            free(availLayers);
+            return create_failed();
         }
         extensions[nExt++] = desc.requiredInstanceExts[i];
     }
@@ -156,6 +162,8 @@ VkContext *vk_context_create(VkContextDesc desc) {
             LOG_WARN("validation requested but VK_LAYER_KHRONOS_validation not available");
         }
     }
+    free(availExts);
+    free(availLayers);
 
     VkApplicationInfo appInfo;
     memset(&appInfo, 0, sizeof(appInfo));
@@ -178,19 +186,19 @@ VkContext *vk_context_create(VkContextDesc desc) {
     VkResult res = vkCreateInstance(&ici, NULL, &ctx.instance);
     if (res != VK_SUCCESS || ctx.instance == VK_NULL_HANDLE) {
         LOG_ERROR("vk_context_create: vkCreateInstance failed: VkResult %d", (int)res);
-        goto done;
+        return create_failed();
     }
 
     if (!vk_load_instance_fns(ctx.instance)) {
         LOG_ERROR("vk_context_create: failed to load vulkan functions ");
-        goto done;
+        return create_failed();
     }
 
     uint32_t npd = 0;
     res = vkEnumeratePhysicalDevices(ctx.instance, &npd, NULL);
     if (res != VK_SUCCESS || npd == 0) {
         LOG_ERROR("vkEnumeratePhysicalDevices failed or no devices (vr=%d)", (int)res);
-        goto done;
+        return create_failed();
     }
 
     VkPhysicalDevice physDevices[MAX_PHYS_DEVICES];
@@ -198,7 +206,7 @@ VkContext *vk_context_create(VkContextDesc desc) {
     res = vkEnumeratePhysicalDevices(ctx.instance, &npd, physDevices);
     if (res != VK_SUCCESS && res != VK_INCOMPLETE) {
         LOG_ERROR("vkEnumeratePhysicalDevices failed or no devices (vr=%d)", (int)res);
-        goto done;
+        return create_failed();
     }
 
     uint32_t graphicsqfi = UINT32_MAX;
@@ -244,7 +252,7 @@ VkContext *vk_context_create(VkContextDesc desc) {
 
     if (physd == VK_NULL_HANDLE) {
         LOG_ERROR("vk_context_create(): no suitable Vulkan physical device/queue family found (need graphics+present)");
-        goto done;
+        return create_failed();
     } else {
         ctx.physDevice = physd;
         ctx.queue.graphicsqfi = graphicsqfi;
@@ -279,39 +287,31 @@ VkContext *vk_context_create(VkContextDesc desc) {
     res = vkCreateDevice(ctx.physDevice, &dci, NULL, &ctx.device);
     if (res != VK_SUCCESS || ctx.device == VK_NULL_HANDLE) {
         LOG_ERROR("vkCreateDevice failed (vr=%d)", (int)res);
-        goto done;
+        return create_failed();
     }
 
     if (!vk_load_device_fns(ctx.device)) {
         LOG_ERROR("failed to load Vulkan device functions");
-        goto done;
+        return create_failed();
     }
 
     vkGetDeviceQueue(ctx.device, graphicsqfi, 0, &ctx.queue.graphics);
     if (ctx.queue.graphics == VK_NULL_HANDLE) {
         LOG_ERROR("vkGetDeviceQueue returned NULL queue");
-        goto done;
+        return create_failed();
     }
 
     if (transferqfi != graphicsqfi) {
         vkGetDeviceQueue(ctx.device, transferqfi, 0, &ctx.queue.transfer);
         if (ctx.queue.transfer == VK_NULL_HANDLE) {
             LOG_ERROR("vkGetDeviceQueue returned NULL queue");
-            goto done;
+            return create_failed();
         }
     } else {
         ctx.queue.transfer = ctx.queue.graphics;
     }
 
-    result = &ctx;
-
-done:
-    free(availExts);
-    free(availLayers);
-    if (!result) {
-        vk_context_destroy(&ctx);
-    }
-    return result;
+    return &ctx;
 }
 
 void vk_context_destroy(VkContext *ctx) {
