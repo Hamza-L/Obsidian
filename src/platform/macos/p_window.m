@@ -199,6 +199,9 @@ OWindow *window_create(const OWindowDesc *desc) {
 
     window->ns_window = (void *)CFBridgingRetain(ns_window);
     window->open = true;
+
+    window_show(window);
+
     g_app.window_count++;
     return window;
 }
