@@ -54,6 +54,24 @@ bool vk_test_surface_present_support(OWindow * window) {
     return res == VK_SUCCESS && supportsPresent == VK_TRUE;
 }
 
+static bool device_has_extensions(VkPhysicalDevice device, const char *const *names, uint32_t count) {
+    if (count == 0) return true;
+    uint32_t available = 0;
+    if (vkEnumerateDeviceExtensionProperties(device, NULL, &available, NULL) != VK_SUCCESS) return false;
+    VkExtensionProperties *props = calloc(available, sizeof *props);
+    if (!props) return false;
+    vkEnumerateDeviceExtensionProperties(device, NULL, &available, props);
+
+    bool all_found = true;
+    for (uint32_t i = 0; i < count && all_found; i++) {
+        bool found = false;
+        for (uint32_t j = 0; j < available && !found; j++) found = strcmp(props[j].extensionName, names[i]) == 0;
+        all_found = found;
+    }
+    free(props);
+    return all_found;
+}
+
 VkContext *vk_context_create(VkContextDesc desc) {
     VkExtensionProperties *availExts = NULL;
     uint32_t nAvailExts = 0;
@@ -187,6 +205,7 @@ VkContext *vk_context_create(VkContextDesc desc) {
     uint32_t transferqfi = UINT32_MAX;
     VkPhysicalDevice physd = VK_NULL_HANDLE;
     for (uint32_t i = 0; i < npd && i < MAX_PHYS_DEVICES; i++) {
+        if (!device_has_extensions(physDevices[i], desc.requiredDeviceExts, nReqDeviceExts)) continue;
         graphicsqfi = UINT32_MAX;
         transferqfi = UINT32_MAX;
         uint32_t nqfi = 0;

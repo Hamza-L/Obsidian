@@ -14,6 +14,7 @@ PFN_vkEnumerateInstanceLayerProperties vkEnumerateInstanceLayerProperties;
 PFN_vkEnumeratePhysicalDevices vkEnumeratePhysicalDevices;
 PFN_vkGetPhysicalDeviceProperties vkGetPhysicalDeviceProperties;
 PFN_vkGetPhysicalDeviceProperties2 vkGetPhysicalDeviceProperties2;
+PFN_vkEnumerateDeviceExtensionProperties vkEnumerateDeviceExtensionProperties;
 PFN_vkGetPhysicalDeviceQueueFamilyProperties vkGetPhysicalDeviceQueueFamilyProperties;
 
 PFN_vkCreateDevice vkCreateDevice;
@@ -138,6 +139,7 @@ bool vk_load_instance_fns(VkInstance instance) {
     vkEnumeratePhysicalDevices = (PFN_vkEnumeratePhysicalDevices)vk_get_instance(instance, "vkEnumeratePhysicalDevices");
     vkGetPhysicalDeviceProperties = (PFN_vkGetPhysicalDeviceProperties)vk_get_instance(instance, "vkGetPhysicalDeviceProperties");
     vkGetPhysicalDeviceProperties2 = (PFN_vkGetPhysicalDeviceProperties2)vk_get_instance(instance, "vkGetPhysicalDeviceProperties2");
+    vkEnumerateDeviceExtensionProperties = (PFN_vkEnumerateDeviceExtensionProperties)vk_get_instance(instance, "vkEnumerateDeviceExtensionProperties");
     vkGetPhysicalDeviceQueueFamilyProperties = (PFN_vkGetPhysicalDeviceQueueFamilyProperties)vk_get_instance(instance, "vkGetPhysicalDeviceQueueFamilyProperties");
     vkCreateDevice = (PFN_vkCreateDevice)vk_get_instance(instance, "vkCreateDevice");
     vkGetPhysicalDeviceMemoryProperties = (PFN_vkGetPhysicalDeviceMemoryProperties)vk_get_instance(instance, "vkGetPhysicalDeviceMemoryProperties");
