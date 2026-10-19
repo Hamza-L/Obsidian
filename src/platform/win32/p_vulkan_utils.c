@@ -49,11 +49,9 @@ bool vk_test_surface_present_support(OWindow * window) {
 
     VkBool32 supportsPresent = VK_FALSE;
     res = vkGetPhysicalDeviceSurfaceSupportKHR(ctx.physDevice, ctx.queue.graphicsqfi, surface, &supportsPresent);
-    if (res != VK_SUCCESS || supportsPresent) {
-        return false;
-    }
+    vkDestroySurfaceKHR(ctx.instance, surface, NULL);
 
-    return true;
+    return res == VK_SUCCESS && supportsPresent == VK_TRUE;
 }
 
 VkContext *vk_context_create(VkContextDesc desc) {
