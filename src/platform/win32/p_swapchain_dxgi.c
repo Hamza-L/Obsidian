@@ -642,7 +642,7 @@ SwapchainPresentResult swapchain_present(Swapchain *sc, VkQueue queue, VkSemapho
         hr = IDXGIKeyedMutex_AcquireSync(mutex, 0, 5000);
         if (SUCCEEDED(hr)) {
             ID3D11Texture2D *back_buffer = NULL;
-            hr = IDXGISwapChain1_GetBuffer(sc->dxgiSwapchain, image_index, &IID_ID3D11Texture2D_NE, (void **)&back_buffer);
+            hr = IDXGISwapChain1_GetBuffer(sc->dxgiSwapchain, 0, &IID_ID3D11Texture2D_NE, (void **)&back_buffer);
             if (SUCCEEDED(hr) && back_buffer) {
                 ID3D11DeviceContext_CopyResource(sc->d3dContext, (ID3D11Resource *)back_buffer, (ID3D11Resource *)sc->sharedTextures[image_index]);
                 ID3D11Texture2D_Release(back_buffer);
