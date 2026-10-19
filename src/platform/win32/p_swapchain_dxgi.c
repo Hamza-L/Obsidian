@@ -694,19 +694,31 @@ SwapchainPresentResult swapchain_present(Swapchain *sc, VkQueue queue, VkSemapho
     IDXGIKeyedMutex *mutex = NULL;
     HRESULT hr = ID3D11Texture2D_QueryInterface(sc->sharedTextures[image_index],
         &IID_IDXGIKeyedMutex_NE, (void **)&mutex);
-    if (SUCCEEDED(hr) && mutex) {
-        hr = IDXGIKeyedMutex_AcquireSync(mutex, 0, 5000);
-        if (SUCCEEDED(hr)) {
-            ID3D11Texture2D *back_buffer = NULL;
-            hr = IDXGISwapChain1_GetBuffer(sc->dxgiSwapchain, 0, &IID_ID3D11Texture2D_NE, (void **)&back_buffer);
-            if (SUCCEEDED(hr) && back_buffer) {
-                ID3D11DeviceContext_CopyResource(sc->d3dContext, (ID3D11Resource *)back_buffer, (ID3D11Resource *)sc->sharedTextures[image_index]);
-                ID3D11Texture2D_Release(back_buffer);
-            }
-            IDXGIKeyedMutex_ReleaseSync(mutex, 0);
-        }
-        IDXGIKeyedMutex_Release(mutex);
+    if (FAILED(hr) || !mutex) {
+        LOG_ERROR("QueryInterface(IDXGIKeyedMutex) for shared tex %u failed (hr=0x%08lx)", image_index, hr);
+        return SWAPCHAIN_PRESENT_FAILED;
     }
+
+    hr = IDXGIKeyedMutex_AcquireSync(mutex, 0, 5000);
+    if (FAILED(hr)) {
+        LOG_ERROR("IDXGIKeyedMutex::AcquireSync for shared tex %u failed (hr=0x%08lx)", image_index, hr);
+        IDXGIKeyedMutex_Release(mutex);
+        return SWAPCHAIN_PRESENT_FAILED;
+    }
+
+    ID3D11Texture2D *back_buffer = NULL;
+    hr = IDXGISwapChain1_GetBuffer(sc->dxgiSwapchain, 0, &IID_ID3D11Texture2D_NE, (void **)&back_buffer);
+    if (FAILED(hr) || !back_buffer) {
+        LOG_ERROR("IDXGISwapChain::GetBuffer(0) failed (hr=0x%08lx)", hr);
+        IDXGIKeyedMutex_ReleaseSync(mutex, 0);
+        IDXGIKeyedMutex_Release(mutex);
+        return SWAPCHAIN_PRESENT_FAILED;
+    }
+
+    ID3D11DeviceContext_CopyResource(sc->d3dContext, (ID3D11Resource *)back_buffer, (ID3D11Resource *)sc->sharedTextures[image_index]);
+    ID3D11Texture2D_Release(back_buffer);
+    IDXGIKeyedMutex_ReleaseSync(mutex, 0);
+    IDXGIKeyedMutex_Release(mutex);
 
     UINT sync_interval = sc->vsync ? 1 : 0;
     DXGI_PRESENT_PARAMETERS params;
