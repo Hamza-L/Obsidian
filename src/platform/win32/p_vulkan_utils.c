@@ -72,9 +72,26 @@ static bool device_has_extensions(VkPhysicalDevice device, const char *const *na
     return all_found;
 }
 
+static bool instance_has_extensions(const char *const *names, uint32_t count) {
+    if (count == 0) return true;
+    uint32_t available = 0;
+    if (vkEnumerateInstanceExtensionProperties(NULL, &available, NULL) != VK_SUCCESS) return false;
+    VkExtensionProperties *props = calloc(available, sizeof *props);
+    if (!props) return false;
+    vkEnumerateInstanceExtensionProperties(NULL, &available, props);
+
+    bool all_found = true;
+    for (uint32_t i = 0; i < count && all_found; i++) {
+        bool found = false;
+        for (uint32_t j = 0; j < available && !found; j++) found = strcmp(props[j].extensionName, names[i]) == 0;
+        all_found = found;
+        if (!found) LOG_ERROR("required Vulkan instance extension not available: %s", names[i]);
+    }
+    free(props);
+    return all_found;
+}
+
 VkContext *vk_context_create(VkContextDesc desc) {
-    VkExtensionProperties *availExts = NULL;
-    uint32_t nAvailExts = 0;
     VkLayerProperties *availLayers = NULL;
     uint32_t nAvailLayers = 0;
 
@@ -94,17 +111,14 @@ VkContext *vk_context_create(VkContextDesc desc) {
         }
     }
 
-    /* Enumerate extensions and layers once, then check against the cached lists. */
-    vkEnumerateInstanceExtensionProperties(NULL, &nAvailExts, NULL);
-    if (nAvailExts > 0) {
-        availExts = (VkExtensionProperties *)calloc(nAvailExts, sizeof(VkExtensionProperties));
-        if (!availExts){
-            LOG_ERROR("vk_context_create(): failed to acquire the available exts\n");
-            vk_context_destroy(&ctx);
-            return NULL;
-        }
-        vkEnumerateInstanceExtensionProperties(NULL, &nAvailExts, availExts);
+    if (!instance_has_extensions(desc.requiredInstanceExts, nReqInstanceExts)) {
+        vk_context_destroy(&ctx);
+        return NULL;
     }
+
+    const char *extensions[32];
+    uint32_t nExt = 0;
+    for (uint32_t i = 0; i < nReqInstanceExts; i++) extensions[nExt++] = desc.requiredInstanceExts[i];
 
     vkEnumerateInstanceLayerProperties(&nAvailLayers, NULL);
     if (nAvailLayers > 0) {
@@ -112,26 +126,6 @@ VkContext *vk_context_create(VkContextDesc desc) {
         if (availLayers) {
             vkEnumerateInstanceLayerProperties(&nAvailLayers, availLayers);
         }
-    }
-
-    const char *extensions[32];
-    uint32_t nExt = 0;
-    for (uint32_t i = 0; i < nReqInstanceExts; i++) {
-        bool found = false;
-        for (uint32_t j = 0; j < nAvailExts; j++) {
-            if (strcmp(availExts[j].extensionName, desc.requiredInstanceExts[i]) == 0) {
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            LOG_ERROR("vk_context_create: required Vulkan instance extension not available: %s", desc.requiredInstanceExts[i]);
-            free(availExts);
-            free(availLayers);
-            vk_context_destroy(&ctx);
-            return NULL;
-        }
-        extensions[nExt++] = desc.requiredInstanceExts[i];
     }
 
     /* Best-effort validation support. */
@@ -149,18 +143,12 @@ VkContext *vk_context_create(VkContextDesc desc) {
         if (has_val_layer) {
             layers[nLayers++] = val_layer;
 
-            /* Debug utils is optional; we wire it up later. */
-            for (uint32_t i = 0; i < nAvailExts && availExts; i++) {
-                if (strcmp(availExts[i].extensionName, VK_EXT_DEBUG_UTILS_EXTENSION_NAME) == 0) {
-                    extensions[nExt++] = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
-                    break;
-                }
-            }
+            const char *debug_utils = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
+            if (instance_has_extensions(&debug_utils, 1)) extensions[nExt++] = debug_utils;
         } else {
             LOG_WARN("validation requested but VK_LAYER_KHRONOS_validation not available");
         }
     }
-    free(availExts);
     free(availLayers);
 
     VkApplicationInfo appInfo;
