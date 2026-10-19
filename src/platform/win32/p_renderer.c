@@ -46,6 +46,7 @@ ORenderer *renderer_create(void) {
 }
 
 void renderer_destroy(ORenderer *renderer) {
-    vk_context_destroy(renderer->ctx);
+    if (!renderer) return;
+    if (renderer->ctx) vk_context_destroy(renderer->ctx);
     free(renderer);
 }
