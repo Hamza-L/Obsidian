@@ -189,6 +189,8 @@ VkContext *vk_context_create(VkContextDesc desc) {
     uint32_t transferqfi = UINT32_MAX;
     VkPhysicalDevice physd = VK_NULL_HANDLE;
     for (uint32_t i = 0; i < npd && i < MAX_PHYS_DEVICES; i++) {
+        graphicsqfi = UINT32_MAX;
+        transferqfi = UINT32_MAX;
         uint32_t nqfi = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(physDevices[i], &nqfi, NULL);
         if (nqfi == 0) continue;
