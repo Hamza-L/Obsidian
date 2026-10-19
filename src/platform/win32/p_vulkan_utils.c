@@ -61,6 +61,7 @@ VkContext *vk_context_create(VkContextDesc desc) {
     uint32_t nAvailExts = 0;
     VkLayerProperties *availLayers = NULL;
     uint32_t nAvailLayers = 0;
+    VkContext *result = NULL;
 
     uint32_t nReqInstanceExts = 0;
     while (nReqInstanceExts < MAX_REQUESTED_INSTANCE_EXT && desc.requiredInstanceExts[nReqInstanceExts]) { nReqInstanceExts++; }
@@ -71,7 +72,7 @@ VkContext *vk_context_create(VkContextDesc desc) {
     if (!ctx.vulkanLib) {
         if (!vk_load_lib(&ctx.vulkanLib)) {
             LOG_ERROR("vk_context_create(): Failed to load vulkan lib");
-            return NULL;
+            goto done;
         } else {
             ctx.isInit = true;
         }
@@ -83,7 +84,7 @@ VkContext *vk_context_create(VkContextDesc desc) {
         availExts = (VkExtensionProperties *)calloc(nAvailExts, sizeof(VkExtensionProperties));
         if (!availExts){
             LOG_ERROR("vk_context_create(): failed to acquire the available exts\n");
-            return NULL;
+            goto done;
         }
         vkEnumerateInstanceExtensionProperties(NULL, &nAvailExts, availExts);
     }
@@ -108,7 +109,7 @@ VkContext *vk_context_create(VkContextDesc desc) {
         }
         if (!found) {
             LOG_ERROR("vk_context_create: required Vulkan instance extension not available: %s", desc.requiredInstanceExts[i]);
-            return NULL;
+            goto done;
         }
         extensions[nExt++] = desc.requiredInstanceExts[i];
     }
@@ -161,30 +162,26 @@ VkContext *vk_context_create(VkContextDesc desc) {
     VkResult res = vkCreateInstance(&ici, NULL, &ctx.instance);
     if (res != VK_SUCCESS || ctx.instance == VK_NULL_HANDLE) {
         LOG_ERROR("vk_context_create: vkCreateInstance failed: VkResult %d", (int)res);
-        vk_context_destroy(&ctx);
-        return NULL;
+        goto done;
     }
 
     if (!vk_load_instance_fns(ctx.instance)) {
         LOG_ERROR("vk_context_create: failed to load vulkan functions ");
-        vk_context_destroy(&ctx);
-        return NULL;
+        goto done;
     }
 
     uint32_t npd = 0;
     res = vkEnumeratePhysicalDevices(ctx.instance, &npd, NULL);
     if (res != VK_SUCCESS || npd == 0) {
         LOG_ERROR("vkEnumeratePhysicalDevices failed or no devices (vr=%d)", (int)res);
-        vk_context_destroy(&ctx);
-        return NULL;
+        goto done;
     }
 
     VkPhysicalDevice physDevices[MAX_PHYS_DEVICES];
     res = vkEnumeratePhysicalDevices(ctx.instance, &npd, physDevices);
     if (res != VK_SUCCESS) {
         LOG_ERROR("vkEnumeratePhysicalDevices failed or no devices (vr=%d)", (int)res);
-        vk_context_destroy(&ctx);
-        return NULL;
+        goto done;
     }
 
     uint32_t graphicsqfi = UINT32_MAX;
@@ -227,7 +224,7 @@ VkContext *vk_context_create(VkContextDesc desc) {
 
     if (physd == VK_NULL_HANDLE) {
         LOG_ERROR("vk_context_create(): no suitable Vulkan physical device/queue family found (need graphics+present)");
-        return false;
+        goto done;
     } else {
         ctx.physDevice = physd;
         ctx.queue.graphicsqfi = graphicsqfi;
@@ -262,38 +259,47 @@ VkContext *vk_context_create(VkContextDesc desc) {
     res = vkCreateDevice(ctx.physDevice, &dci, NULL, &ctx.device);
     if (res != VK_SUCCESS || ctx.device == VK_NULL_HANDLE) {
         LOG_ERROR("vkCreateDevice failed (vr=%d)", (int)res);
-        return false;
+        goto done;
     }
 
     if (!vk_load_device_fns(ctx.device)) {
         LOG_ERROR("failed to load Vulkan device functions");
-        return false;
+        goto done;
     }
 
     vkGetDeviceQueue(ctx.device, graphicsqfi, 0, &ctx.queue.graphics);
     if (ctx.queue.graphics == VK_NULL_HANDLE) {
         LOG_ERROR("vkGetDeviceQueue returned NULL queue");
-        return false;
+        goto done;
     }
 
     if (transferqfi != graphicsqfi) {
         vkGetDeviceQueue(ctx.device, transferqfi, 0, &ctx.queue.transfer);
         if (ctx.queue.transfer == VK_NULL_HANDLE) {
             LOG_ERROR("vkGetDeviceQueue returned NULL queue");
-            return false;
+            goto done;
         }
     } else {
         ctx.queue.transfer = ctx.queue.graphics;
     }
 
-    return &ctx;
+    result = &ctx;
+
+done:
+    free(availExts);
+    free(availLayers);
+    if (!result) {
+        vk_context_destroy(&ctx);
+    }
+    return result;
 }
 
 void vk_context_destroy(VkContext *ctx) {
-    (void)ctx;
+    if (!ctx) return;
 
-    if (ctx->device) vkDestroyDevice(ctx->device, NULL);
-    if (ctx->instance) vkDestroyInstance(ctx->instance, NULL);
+    if (ctx->device && vkDestroyDevice) vkDestroyDevice(ctx->device, NULL);
+    if (ctx->instance && vkDestroyInstance) vkDestroyInstance(ctx->instance, NULL);
     if (ctx->vulkanLib) FreeLibrary(ctx->vulkanLib);
 
+    memset(ctx, 0, sizeof(*ctx));
 }
