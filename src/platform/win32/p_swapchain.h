@@ -23,7 +23,7 @@ typedef enum SwapchainPresentResult {
     SWAPCHAIN_PRESENT_FAILED,
 } SwapchainPresentResult;
 
-typedef struct SwapchainDXGIDesc {
+typedef struct SwapchainDesc {
     VkDevice device;
     VkPhysicalDevice physDevice;
     VkInstance instance;

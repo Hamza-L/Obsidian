@@ -11,7 +11,7 @@
  *   we wait on that fence to guarantee the GPU has finished rendering. This
  *   adds ~0.1ms of CPU latency but is simple and correct.
  */
-#include "ne_swapchain.h"
+#include "p_swapchain.h"
 
 #define WIN32_LEAN_AND_MEAN
 #define COBJMACROS
@@ -672,7 +672,7 @@ SwapchainPresentResult swapchain_present(Swapchain *sc, VkQueue queue, VkSemapho
 }
 
 Swapchain *swapchain_create(OWindow *window, SwapchainDesc desc) {
-    if (!desc.device || !desc.physDevice || !desc.instance || !desc.window) {
+    if (!desc.device || !desc.physDevice || !desc.instance) {
         return NULL;
     }
 
