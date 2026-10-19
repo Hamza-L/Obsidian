@@ -22,7 +22,7 @@ int main(int argc, char **argv) {
     OWindow * window = window_create(&(OWindowDesc){.width = 800, .height = 600, .x = 0, .y = 0, .title = "Obsidian"});
     input_subscribe((OInputCallbacks){.on_key_down = on_key }, window);
 
-    ORenderer *renderer = renderer_create();
+    ORenderer *renderer = renderer_create(&(ORendererDesc){0});
 
     while (window_poll_events()) {
         //do work
