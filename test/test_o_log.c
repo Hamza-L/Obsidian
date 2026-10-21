@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
-static const char *k_path = "build/test_o_log.tmp";
+static const char *k_log_path = "build/test_o_log.tmp";
 
 static size_t read_all(const char *path, char *out, size_t cap) {
     FILE *f = fopen(path, "rb");
@@ -23,7 +23,7 @@ static int count_lines(const char *s) {
 
 void test_o_log(void) {
     CHECK(!log_open_file("build/no/such/dir/log.txt"));
-    CHECK(log_open_file(k_path));
+    CHECK(log_open_file(k_log_path));
     log_set_sinks(O_LOG_SINK_FILE);
     log_set_level(O_LOG_INFO);
 
@@ -42,7 +42,7 @@ void test_o_log(void) {
     log_close_file();
 
     char content[8192];
-    CHECK(read_all(k_path, content, sizeof content) > 0);
+    CHECK(read_all(k_log_path, content, sizeof content) > 0);
     CHECK(count_lines(content) == 5);
     CHECK(strstr(content, "filtered") == NULL);
     CHECK(strstr(content, "INFO  test_o_log.c:") != NULL);
@@ -56,7 +56,7 @@ void test_o_log(void) {
     const char *longest = strstr(content, "xxx");
     CHECK(longest && strchr(longest, '\n') - strstr(content, "ERROR test_o_log.c:") < 1100);
 
-    remove(k_path);
+    remove(k_log_path);
     log_set_level(O_LOG_INFO);
     log_open_file(TEST_LOG_PATH);
     log_set_sinks(O_LOG_SINK_FILE);

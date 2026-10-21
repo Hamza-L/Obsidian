@@ -1,0 +1,6 @@
+#include "o_log.c"
+#include "o_memory.c"
+#include "o_file.c"
+#include "o_input.c"
+#include "o_window.c"
+#include "o_renderer.c"

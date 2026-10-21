@@ -1,8 +1,6 @@
 # Toolchain defaults are platform-neutral; platform makefiles (included below)
-# override LD/LDFLAGS as needed (e.g. Win32 uses the MSVC-style clang-cl driver).
+# override CC/LDFLAGS as needed.
 CC := clang
-LD := clang
-OBJC := clang
 ASAN := 0
 
 # Public target name (what users type): no extension, consistent across platforms.
@@ -46,9 +44,11 @@ RENDERER_VALIDATION ?= 1
 CFLAGS := -std=c99 -g -DDEBUG -Wall -Wextra -Wpedantic -Werror -DRENDERER_VALIDATION=$(RENDERER_VALIDATION)
 CFLAGS += -I./external
 CFLAGS += -I./include
+CFLAGS += -I./src
 CFLAGS += -I./src/input
 
-OBJCFLAGS := -fobjc-arc
+# Platform makefiles set this to change the language the unity roots compile as.
+LANGFLAGS :=
 LDFLAGS :=
 LDLIBS :=
 
@@ -57,23 +57,17 @@ CFLAGS  += -fsanitize=address -fno-omit-frame-pointer
 LDFLAGS += -fsanitize=address
 endif
 
-# Platform-independent sources (platform makefiles append platform-specific ones).
-SRC_C := src/main.c
-SRC_C += src/memory/m_alloc.c
-SRC_C += src/file/f_file.c
-SRC_C += src/log/l_log.c
-SRC_C += src/input/i_input.c
-SRC_M :=
-
-# One test file per public header, plus the runner.
-TEST_SRC_C := $(wildcard test/*.c)
+# Unity build: each executable is one translation unit compiled and linked in a single
+# step. main.c and test_main.c include src/unity.c, which includes every module and the
+# platform layer. Generated .d files track the included sources.
+APP_ROOT := src/main.c
+TEST_ROOT := test/test_main.c
 
 # Platform makefiles can append to this to force prerequisites before any
 # object is compiled (e.g. downloaded headers).
 EXTRA_OBJECT_DEPS :=
 
 # Default platform settings (may be overridden by platform makefiles).
-OBJ_EXT := o
 mkdir_p = mkdir -p "$(1)"
 rmdir_rf = rm -rf "$(1)"
 run = "$(1)"
@@ -121,18 +115,11 @@ else
 $(error Unsupported platform: $(UNAME_S))
 endif
 
-OBJ_C := $(SRC_C:%.c=$(BUILD_DIR)/%.$(OBJ_EXT))
-OBJ_M := $(SRC_M:%.m=$(BUILD_DIR)/%.$(OBJ_EXT))
-OBJS := $(OBJ_C) $(OBJ_M)
+DEPFLAGS := -MMD -MP
+-include $(OUTPUT).d $(TEST_OUTPUT).d
 
-# Tests link against every module object except the app entry point.
-MODULE_OBJS := $(filter-out $(BUILD_DIR)/src/main.$(OBJ_EXT),$(OBJS))
-TEST_OBJS := $(TEST_SRC_C:%.c=$(BUILD_DIR)/%.$(OBJ_EXT))
-
-DEPS := $(OBJS:.$(OBJ_EXT)=.d) $(TEST_OBJS:.$(OBJ_EXT)=.d)
-
-# Automatically include generated dependency files (if present).
--include $(DEPS)
+# $(1) = root source, $(2) = output executable.
+build_exe = $(CC) $(CFLAGS) $(LANGFLAGS) $(DEPFLAGS) -MF $(2).d $(1) -o $(2) $(LDFLAGS) $(LDLIBS)
 
 .PHONY: all clean clean-full test deps $(APP_NAME)
 
@@ -149,32 +136,19 @@ all: $(APP_NAME)
 test: $(TEST_OUTPUT)
 	@$(call run,$(TEST_OUTPUT))
 
-$(TEST_OUTPUT): $(BUILD_DIR) $(MODULE_OBJS) $(TEST_OBJS)
-	@echo LINK $(TEST_OUTPUT)
-	$(Q)$(LD) $(MODULE_OBJS) $(TEST_OBJS) -o $(TEST_OUTPUT) $(LDFLAGS) $(LDLIBS)
+$(TEST_OUTPUT): $(TEST_ROOT) $(EXTRA_OBJECT_DEPS) | $(BUILD_DIR)
+	@echo BUILD $@
+	$(Q)$(call build_exe,$<,$@)
 
 # User-facing target without extension.
 $(APP_NAME): $(OUTPUT)
 
-$(OUTPUT): $(BUILD_DIR) $(OBJS)
-	@echo LINK $(OUTPUT)
-	$(Q)$(LD) $(OBJS) -o $(OUTPUT) $(LDFLAGS) $(LDLIBS)
+$(OUTPUT): $(APP_ROOT) $(EXTRA_OBJECT_DEPS) | $(BUILD_DIR)
+	@echo BUILD $@
+	$(Q)$(call build_exe,$<,$@)
 
 $(BUILD_DIR):
 	$(Q)$(call mkdir_p,$(BUILD_DIR))
-
-# Generate dependencies alongside objects using Clang's -MMD/-MP.
-DEPFLAGS := -MMD -MP
-
-$(BUILD_DIR)/%.$(OBJ_EXT): %.c $(EXTRA_OBJECT_DEPS)
-	@echo CC $<
-	$(Q)$(call mkdir_p,$(dir $@))
-	$(Q)$(CC) $(CFLAGS) $(DEPFLAGS) -MF $(@:.$(OBJ_EXT)=.d) -c $< -o $@
-
-$(BUILD_DIR)/%.$(OBJ_EXT): %.m $(EXTRA_OBJECT_DEPS)
-	@echo OBJC $<
-	$(Q)$(call mkdir_p,$(dir $@))
-	$(Q)$(OBJC) $(CFLAGS) $(OBJCFLAGS) -Iinclude $(DEPFLAGS) -MF $(@:.$(OBJ_EXT)=.d) -c $< -o $@
 
 clean:
 	$(Q)$(call rmdir_rf,build)

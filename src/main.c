@@ -1,3 +1,5 @@
+#include "unity.c"
+
 #include "o_log.h"
 #include "o_window.h"
 #include "o_renderer.h"

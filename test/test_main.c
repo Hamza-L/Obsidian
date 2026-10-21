@@ -1,7 +1,15 @@
+#include "unity.c"
+
 #include "o_log.h"
 #include "o_test.h"
 
 int test_failures;
+
+#include "test_o_log.c"
+#include "test_o_memory.c"
+#include "test_o_file.c"
+#include "test_o_input.c"
+#include "test_o_window.c"
 
 typedef struct {
     const char *name;

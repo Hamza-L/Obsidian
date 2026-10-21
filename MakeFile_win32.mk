@@ -20,8 +20,6 @@ endif
 export TMP  := $(CURDIR)/build
 export TEMP := $(CURDIR)/build
 
-OBJ_EXT := obj
-
 # --- Preflight: fail fast with actionable messages ------------------------
 $(call require_tool,clang-cl,clang version,Ships with LLVM/Clang. Ensure the LLVM bin dir is on PATH.)
 $(call require_tool,cmake,cmake version,Install CMake from https://cmake.org/download/ (or `winget install Kitware.CMake`) and add it to PATH.)
@@ -37,15 +35,10 @@ VSWHERE := C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe
 $(call require_probe,Visual Studio 2022,"$(VSWHERE)" -latest -property installationPath,Microsoft Visual Studio,Install Visual Studio 2022 (any edition) or "Build Tools for Visual Studio 2022"$(comma) and select the "Desktop development with C++" workload.)
 
 # --- Sources --------------------------------------------------------------
-SRC_C += src/platform/win32/p_window.c
-SRC_C += src/platform/win32/p_input.c
-SRC_C += src/platform/win32/p_vulkan_loader.c
-SRC_C += src/platform/win32/p_renderer.c
 # SRC_C += src/renderer/vulkan/ne_swapchain_vulkan_wsi.c
 # SRC_C += src/renderer/vulkan/ne_swapchain_dxgi.c
 
 # internal
-SRC_C += src/memory/m_alloc_win32.c
 # SRC_C += src/renderer/vulkan/internal/ne_vulkan_renderer.c
 # SRC_C += src/renderer/vulkan/internal/ne_vulkan_buffers.c
 # SRC_C += src/renderer/vulkan/internal/ne_vulkan_images.c
@@ -60,12 +53,7 @@ CFLAGS += -Isrc/renderer/vulkan
 
 SHADERS_DIR := $(BUILD_DIR)/shaders
 
-# --- Toolchain ------------------------------------------------------------
-LD := clang
-
 # --- Link flags -----------------------------------------------------------
-# clang-cl link line: <objs> -o <out> <LDFLAGS> <LDLIBS>. -link is the last
-# LDFLAGS entry so everything in LDLIBS is forwarded to the MSVC linker.
 LDFLAGS += -g
 
 LDLIBS += -luser32.lib
