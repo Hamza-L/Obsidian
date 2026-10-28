@@ -33,7 +33,7 @@ void test_o_memory(void) {
     *i1 = (Item){1, 2, 3};
     *i2 = (Item){4, 5, 6};
     CHECK(i1->a == 1 && i1->b == 2 && i1->c == 3);
-    CHECK(memory_pool_item_get(pool, MHANDLE_INVALID) == NULL);
+    CHECK(memory_pool_item_get(pool, HANDLE_INVALID) == NULL);
 
     memory_pool_item_remove(pool, h1);
     CHECK(memory_pool_item_get(pool, h1) == NULL);

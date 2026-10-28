@@ -25,7 +25,6 @@ typedef struct OImage { uint32_t index, age; } OImage;
 typedef struct OShader { uint32_t index, age; } OShader;
 typedef struct OSurface { uint32_t index, age; } OSurface;
 
-#define O_HANDLE_IS_NULL(handle) ((handle).index == 0)
 #define O_MAX_COLOR_ATTACHMENTS 8
 #define O_MAX_CONSTANTS_SIZE 128
 
@@ -53,9 +52,9 @@ typedef enum OMemory {
 
 typedef uint32_t OImageUsage;
 enum {
-    O_IMAGE_SAMPLED = 1u << 0,
-    O_IMAGE_STORAGE = 1u << 1,
-    O_IMAGE_RENDER_TARGET = 1u << 2,
+    O_IMAGE_READ = 1u << 0,
+    O_IMAGE_WRITE = 1u << 1,
+    O_IMAGE_RENDERTARGET = 1u << 2,
 };
 
 typedef enum OShaderStage {
@@ -78,14 +77,14 @@ typedef enum OPresentMode {
 } OPresentMode;
 
 typedef enum OLoadOp {
-    O_LOAD_DISCARD = 0,
+    O_LOAD_DONT_CARE = 0,
     O_LOAD_CLEAR,
     O_LOAD_KEEP,
 } OLoadOp;
 
 typedef enum OStoreOp {
     O_STORE_KEEP = 0,
-    O_STORE_DISCARD,
+    O_STORE_DONT_CARE,
 } OStoreOp;
 
 typedef enum OTopology {
@@ -144,24 +143,9 @@ typedef struct OBufferDesc {
 
 typedef struct OImageDesc {
     uint32_t width, height;
-    uint32_t mip_count;
     OFormat format;
     OImageUsage usage;
 } OImageDesc;
-
-typedef struct OShaderDesc {
-    const void *code;
-    uint64_t code_size;
-    const char *entry_point;
-    OShaderStage stage;
-    uint32_t group_size[3];
-} OShaderDesc;
-
-typedef struct OAllocation {
-    OBuffer buffer;
-    uint64_t offset;
-    void *data;
-} OAllocation;
 
 typedef struct ORect {
     int32_t x, y;
@@ -207,48 +191,23 @@ typedef struct ODraw {
     uint32_t constants_size;
 } ODraw;
 
-typedef struct ODispatch {
-    OShader compute;
-    uint32_t group_count[3];
-    const void *constants;
-    uint32_t constants_size;
-} ODispatch;
-
 ORenderer *renderer_create(ORendererDesc *desc);
 void renderer_destroy(ORenderer *renderer);
 void renderer_wait_idle(ORenderer *renderer);
 
-OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle, const OSurfaceDesc *desc);
-void renderer_surface_destroy(ORenderer *renderer, OSurface surface);
-void renderer_surface_resize(ORenderer *renderer, OSurface surface, uint32_t width, uint32_t height);
-
-OBuffer renderer_buffer_create(ORenderer *renderer, const OBufferDesc *desc);
-void renderer_buffer_destroy(ORenderer *renderer, OBuffer buffer);
-void *renderer_buffer_map(ORenderer *renderer, OBuffer buffer);
-void renderer_buffer_unmap(ORenderer *renderer, OBuffer buffer);
-
-OImage renderer_image_create(ORenderer *renderer, const OImageDesc *desc);
-void renderer_image_destroy(ORenderer *renderer, OImage image);
-OImageDesc renderer_image_desc(ORenderer *renderer, OImage image);
-
-OShader renderer_shader_create(ORenderer *renderer, const OShaderDesc *desc);
-void renderer_shader_destroy(ORenderer *renderer, OShader shader);
-
-// Blocks until a frame slot is free.
-void renderer_begin_frame(ORenderer *renderer);
-void renderer_end_frame(ORenderer *renderer);
-OAllocation renderer_frame_alloc(ORenderer *renderer, uint64_t size);
-OImage renderer_surface_acquire(ORenderer *renderer, OSurface surface);
-void renderer_surface_present(ORenderer *renderer, OSurface surface);
+bool renderer_begin_frame(ORenderer *renderer);
+void renderer_end_frame_and_present(ORenderer *renderer);
 
 void renderer_begin_render(ORenderer *renderer, const ORenderTargets *targets);
-void renderer_draw(ORenderer *renderer, const ODraw *draw);
 void renderer_end_render(ORenderer *renderer);
 
-void renderer_dispatch(ORenderer *renderer, const ODispatch *dispatch);
-void renderer_copy_buffer(ORenderer *renderer, OBuffer src, uint64_t src_offset, OBuffer dst, uint64_t dst_offset, uint64_t size);
-void renderer_copy_buffer_to_image(ORenderer *renderer, OBuffer src, uint64_t src_offset, OImage dst, uint32_t mip);
-void renderer_copy_image_to_buffer(ORenderer *renderer, OImage src, uint32_t mip, OBuffer dst, uint64_t dst_offset);
-void renderer_generate_mips(ORenderer *renderer, OImage image);
+OImage renderer_image_create(ORenderer *renderer, OImageDesc *desc);
+void renderer_image_destroy(ORenderer *renderer, OImage image);
+
+OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle, const OSurfaceDesc *desc);
+void renderer_surface_destroy(ORenderer *renderer, OSurface surface);
+
+void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image);
+
 
 #endif

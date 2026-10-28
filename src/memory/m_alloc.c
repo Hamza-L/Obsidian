@@ -43,7 +43,7 @@ void memory_pool_destroy(MPool pool_) {
 MHandle memory_pool_item_acquire(MPool pool_) {
     MPool_* pool = (MPool_*)pool_;
 
-    if (pool->is_out_of_mem) return MHANDLE_INVALID;
+    if (pool->is_out_of_mem) return HANDLE_INVALID;
 
     if (pool->count >= pool->capacity) {
         size_t newcap = pool->capacity*MEM_SCALING_FACTOR;
@@ -57,7 +57,7 @@ MHandle memory_pool_item_acquire(MPool pool_) {
         if(!data || !entries || !generation){
             LOG_ERROR("pool out of memory growing to %zu slots of %u bytes", newcap, pool->slot_size);
             pool->is_out_of_mem = true;
-            return MHANDLE_INVALID;
+            return HANDLE_INVALID;
         } else {
             pool->capacity = newcap;
         }

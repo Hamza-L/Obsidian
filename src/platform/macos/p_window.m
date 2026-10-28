@@ -17,6 +17,7 @@ struct OWindow {
     OWindowCallbacks callbacks;
     void *user_data;
     bool open;
+    bool shown;
 };
 
 static NSWindow *ns_window_of(const OWindow *window) {
@@ -102,6 +103,13 @@ static void wake_event_loop(void) {
 static void app_init(void) {
     if (g_app.initialized) return;
 
+    if (RENDERER_VALIDATION) {
+        setenv("MTL_DEBUG_LAYER", "1", 0);
+        // setenv("MTL_SHADER_VALIDATION", "1", 0);
+        setenv("MTL_DEBUG_LAYER_ERROR_MODE", "assert", 0);
+        setenv("MTL_CAPTURE_ENABLED", "1", 0);
+    }
+
     [NSApplication sharedApplication];
     [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
 
@@ -115,7 +123,6 @@ static void app_init(void) {
     NSApp.mainMenu = menubar;
 
     [NSApp finishLaunching];
-    [NSApp activateIgnoringOtherApps:YES];
 
     g_app.initialized = true;
 }
@@ -225,11 +232,18 @@ void window_destroy(OWindow *window) {
 }
 
 void window_show(OWindow *window) {
-    if (window) [ns_window_of(window) makeKeyAndOrderFront:nil];
+    if (window && !window->shown) {
+        [ns_window_of(window) makeKeyAndOrderFront:nil];
+        [NSApp activate];
+        window->shown = true;
+    }
 }
 
 void window_hide(OWindow *window) {
-    if (window) [ns_window_of(window) orderOut:nil];
+    if (window) {
+        [ns_window_of(window) orderOut:nil];
+        window->shown = false;
+    }
 }
 
 void window_close(OWindow *window) {
