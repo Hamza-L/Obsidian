@@ -77,10 +77,65 @@ MHandle memory_pool_item_acquire(MPool pool_) {
     return handle;
 }
 
+bool memory_pool_item_invalidate(MPool pool_, MHandle handle) {
+    MPool_* pool = (MPool_*)pool_;
+
+    if (handle.index == 0) {
+        LOG_DEBUG("lookup with null handle");
+        return false;
+    }
+
+    if (pool->generation[handle.index - 1] == handle.age) {
+        pool->generation[handle.index - 1]++;
+        return true;
+    }
+    return false;
+}
+
+bool memory_pool_item_recycle(MPool pool_, MHandle handle) {
+    MPool_* pool = (MPool_*)pool_;
+
+    if (handle.index == 0) {
+        LOG_DEBUG("lookup with null handle");
+        return false;
+    }
+
+    if (pool->generation[handle.index - 1] == handle.age) {
+        LOG_DEBUG("recycling handle currently in use. Consider invalidating first.");
+        return false;
+    }
+
+    pool->freelist.entries[pool->freelist.count++] = handle.index - 1;
+    return true;
+}
+
 void memory_pool_item_remove(MPool pool_, MHandle handle) {
     MPool_* pool = (MPool_*)pool_;
-    pool->generation[handle.index - 1]++;
-    pool->freelist.entries[pool->freelist.count++] = handle.index - 1;
+
+    if (handle.index == 0) {
+        LOG_DEBUG("lookup with null handle");
+        return;
+    }
+
+    if (pool->generation[handle.index - 1] == handle.age) {
+        pool->generation[handle.index - 1]++;
+        pool->freelist.entries[pool->freelist.count++] = handle.index - 1;
+    }
+}
+
+void *memory_pool_item_at(MPool pool_, uint32_t index) {
+    MPool_* pool = (MPool_*)pool_;
+    if (index == 0) {
+        LOG_DEBUG("lookup with null index [index = 0 is NULL]");
+        return NULL;
+    }
+
+    if (index > pool->count) {
+        LOG_DEBUG("indexing out of capacity");
+        return NULL;
+    }
+
+    return &pool->data[(index - 1) * pool->slot_size];
 }
 
 void *memory_pool_item_get(MPool pool_, MHandle handle) {

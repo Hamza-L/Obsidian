@@ -1,13 +1,18 @@
+#include "o_memory.h"
 #include "o_renderer.h"
 #include "o_log.h"
-#include "o_memory.h"
+#include "o_memory_deferred.h"
 #include "o_window.h"
+
+#include "p_gpu_types.h"
 
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
 #import <objc/runtime.h>
+
+
 #include <dispatch/dispatch.h>
 
 #include <stdlib.h>
@@ -16,7 +21,12 @@
 #define MAX_RESIDENCY_BUFFER_ALLOCS 1024
 #define MAX_FRAMES_IN_FLIGHT 2
 #define MAX_LAYER_COUNT 8
+
 #define INIT_IMAGE_RETIRE_COUNT 64
+#define MAX_TEXTURE_BIND_COUNT 256
+
+//number of tables to bind to the argument table
+#define MAX_BUFFER_BIND_COUNT 8
 
 #define DEFAULT_IMAGE_DESC (OImageDesc) {.format = O_FORMAT_BGRA8_SRGB, .width = 0, .height = 0, .usage = O_IMAGE_READ}
 
@@ -36,7 +46,7 @@ struct ORenderer{
     MPool imagePool;
 
     struct {
-        struct { id<MTLTexture> gpuData; uint64_t frameAtDeletion; } *data ;
+        struct { OImage image; uint64_t frameAtDeletion;} *data ;
         uint32_t count;
         uint32_t capacity;
     } retireList;
@@ -50,14 +60,14 @@ struct ORenderer{
         } data[MAX_LAYER_COUNT] ;
     } layerList;
 
-    // MTLBindingType argumentTable;
-    // id<MTLBuffer> imageTable;
+    id<MTL4ArgumentTable> argumentTable;
+    id<MTLBuffer> imageTable;
 
 } g_renderer;
 
 typedef struct {
     OImageDesc desc;
-    id<MTLTexture> gpuData;
+    __unsafe_unretained id<MTLTexture> gpuData;
 } OImageSlot;
 
 
@@ -108,10 +118,17 @@ static MTLStoreAction mtl_store_action(OStoreOp store) {
 
 static void drain_all_images(ORenderer* renderer) {
     for (uint32_t i = 0; i < renderer->retireList.count; i++) {
-        [renderer->residencySet removeAllocation: renderer->retireList.data[i].gpuData];
-        CFBridgingRelease((__bridge CFTypeRef _Nullable)renderer->retireList.data[i].gpuData);
+        OImage img = renderer->retireList.data[i].image;
+        MHandle h = (MHandle){.index = img.index, .age = img.age};
+        OImageSlot* imgSlot = memory_pool_item_at(renderer->imagePool, img.index);
+        if (imgSlot) {
+            [renderer->residencySet removeAllocation: imgSlot->gpuData];
+            CFBridgingRelease((__bridge CFTypeRef _Nullable)imgSlot->gpuData);
+        }
 
-        //swap.
+        memory_pool_item_recycle(renderer->imagePool, h);
+
+        //remove from retire list.
         renderer->retireList.data[i] = renderer->retireList.data[renderer->retireList.count - 1];
         renderer->retireList.count--;
         i--;
@@ -121,10 +138,20 @@ static void drain_all_images(ORenderer* renderer) {
 static void drain_retired_images(ORenderer* renderer) {
     for (uint32_t i = 0; i < renderer->retireList.count; i++) {
         if ( renderer->retireList.data[i].frameAtDeletion  + MAX_FRAMES_IN_FLIGHT <= renderer->frameIndex) {
-            [renderer->residencySet removeAllocation: renderer->retireList.data[i].gpuData];
-            CFBridgingRelease((__bridge CFTypeRef _Nullable)renderer->retireList.data[i].gpuData);
+            OImage img = renderer->retireList.data[i].image;
+            MHandle h = (MHandle){.index = img.index, .age = img.age};
+            OImageSlot* imgSlot = memory_pool_item_at(renderer->imagePool, img.index);
+            if (imgSlot) {
+                ((GPU_TEX*)renderer->imageTable.contents)[img.index] = (MTLResourceID){0};
 
-            //swap.
+                [renderer->residencySet removeAllocation: imgSlot->gpuData];
+                CFBridgingRelease((__bridge CFTypeRef _Nullable)imgSlot->gpuData);
+
+            }
+
+            memory_pool_item_recycle(renderer->imagePool, h);
+
+            //remove from retire list.
             renderer->retireList.data[i] = renderer->retireList.data[renderer->retireList.count - 1];
             renderer->retireList.count--;
             i--;
@@ -134,6 +161,7 @@ static void drain_retired_images(ORenderer* renderer) {
 
 ORenderer *renderer_create(ORendererDesc *desc) {
     (void)desc;
+    NSError * err = nil;
 
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
     if (!device) {
@@ -147,20 +175,44 @@ ORenderer *renderer_create(ORendererDesc *desc) {
         return NULL;
     }
 
+    //create ressouces
+    g_renderer.imageTable = [device newBufferWithLength:MAX_TEXTURE_BIND_COUNT * sizeof(GPU_TEX)
+                                                options:MTLResourceStorageModeShared];
+    if (!g_renderer.imageTable) {
+        LOG_ERROR("failed to create image table\n");
+        return NULL;
+    }
 
+    // create residency set
     MTLResidencySetDescriptor *rsdesc = [[MTLResidencySetDescriptor alloc] init];
     rsdesc.label = @"Primary Residency set";
     rsdesc.initialCapacity = MAX_RESIDENCY_BUFFER_ALLOCS;
-
-    NSError * err = nil;
     id<MTLResidencySet> residencySet = [device newResidencySetWithDescriptor:rsdesc
                                                                        error: &err];
-
     if (!residencySet) {
         LOG_ERROR("failed to create Metal residency set: %s", err.localizedDescription.UTF8String);
         return NULL;
     }
 
+    // create the argument table that will
+    MTL4ArgumentTableDescriptor * atdesc = [MTL4ArgumentTableDescriptor new];
+    atdesc.label = @"main table descriptor";
+    atdesc.maxBufferBindCount = MAX_BUFFER_BIND_COUNT; //slot 0 : table, slot 1 : constants
+    g_renderer.argumentTable = [device newArgumentTableWithDescriptor:atdesc
+                                                                error:&err];
+
+    if (!g_renderer.argumentTable) {
+        LOG_ERROR("failed to create argument table\n");
+        return NULL;
+    }
+
+    [g_renderer.argumentTable setAddress:g_renderer.imageTable.gpuAddress
+                                 atIndex:0];
+
+    // add resouces to residency set
+    [residencySet addAllocation: g_renderer.imageTable];
+
+    // add residency set to queue
     [queue addResidencySet: residencySet];
 
     g_renderer.device = device;
@@ -186,15 +238,16 @@ ORenderer *renderer_create(ORendererDesc *desc) {
     g_renderer.retireList.count = 0;
     g_renderer.retireList.data = malloc(g_renderer.retireList.capacity * sizeof(*g_renderer.retireList.data));
 
+    // DEBUG frame capture
     MTLCaptureDescriptor *cd = [MTLCaptureDescriptor new];
     cd.captureObject = g_renderer.device;
     cd.destination = MTLCaptureDestinationGPUTraceDocument;
     cd.outputURL = [NSURL fileURLWithPath:@"/tmp/first_frames.gputrace"];
 
-    err = nil;
-    if (![MTLCaptureManager.sharedCaptureManager startCaptureWithDescriptor:cd error:&err]) {
-        LOG_ERROR("Capture : %s", err.localizedDescription.UTF8String);
-    }
+    // err = nil;
+    // if (![MTLCaptureManager.sharedCaptureManager startCaptureWithDescriptor:cd error:&err]) {
+    //     LOG_ERROR("Capture : %s", err.localizedDescription.UTF8String);
+    // }
 
     return &g_renderer;
 }
@@ -237,9 +290,9 @@ void renderer_end_frame_and_present(ORenderer *renderer) {
         }
     }
 
-    if (renderer->frameIndex >= 5) {
-        [MTLCaptureManager.sharedCaptureManager stopCapture];
-    }
+    // if (renderer->frameIndex >= 5) {
+    //     [MTLCaptureManager.sharedCaptureManager stopCapture];
+    // }
 
     renderer->frameIndex++;
 }
@@ -251,8 +304,16 @@ OImage renderer_image_create(ORenderer *renderer, OImageDesc *imgDesc) {
     OImageSlot* imgSlot = (OImageSlot*)memory_pool_item_get(renderer->imagePool, h);
     if(!imgSlot) return (OImage){0};
 
+    // check if the image table has enought capacity
+    if (h.index >= MAX_TEXTURE_BIND_COUNT) {
+        LOG_WARN("Cannot bind more than %d textures on the image table\n", MAX_TEXTURE_BIND_COUNT);
+        memory_pool_item_remove(renderer->imagePool, h);
+        return (OImage){0};
+    }
+
     imgSlot->desc = imgDesc ? *imgDesc : DEFAULT_IMAGE_DESC;
 
+    // create image
     MTLTextureDescriptor *desc = [[MTLTextureDescriptor alloc] init];
     desc.width = imgSlot->desc.width;
     desc.height = imgSlot->desc.height;
@@ -261,7 +322,10 @@ OImage renderer_image_create(ORenderer *renderer, OImageDesc *imgDesc) {
     desc.storageMode = MTLStorageModePrivate;
 
     imgSlot->gpuData = (__bridge id<MTLTexture>)CFBridgingRetain([renderer->device newTextureWithDescriptor:desc]);
+
     if (imgSlot->gpuData) {
+        //place it in argument table and residency set
+        ((GPU_TEX*)renderer->imageTable.contents)[h.index] = imgSlot->gpuData.gpuResourceID;
         [renderer->residencySet addAllocation:imgSlot->gpuData];
     } else {
         imgSlot->desc = DEFAULT_IMAGE_DESC;
@@ -300,6 +364,8 @@ void renderer_begin_render(ORenderer *renderer, const ORenderTargets *targets) {
         LOG_ERROR("failed to create a render encoder");
         return;
     }
+
+    [renderEncoder setArgumentTable:renderer->argumentTable atStages:MTLRenderStageVertex | MTLRenderStageFragment];
 
     if (targets->viewport.width && targets->viewport.height) {
         MTLViewport viewport;
@@ -374,7 +440,7 @@ void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) 
         layer.contentsScale = view.window.backingScaleFactor;
     }
 
-    if (layer.drawableSize.width != view.bounds.size.width * view.window.backingScaleFactor &&
+    if (layer.drawableSize.width != view.bounds.size.width * view.window.backingScaleFactor ||
         layer.drawableSize.height != view.bounds.size.height * view.window.backingScaleFactor) {
         layer.drawableSize = CGSizeMake(view.bounds.size.width * view.window.backingScaleFactor,
                                         view.bounds.size.height * view.window.backingScaleFactor);
@@ -392,6 +458,8 @@ void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) 
                 return;
             }
 
+            [computeEncoder setArgumentTable:renderer->argumentTable];
+
             [computeEncoder barrierAfterQueueStages:MTLStageFragment beforeStages:MTLStageBlit visibilityOptions:MTL4VisibilityOptionNone];
             [computeEncoder copyFromTexture:imgSlot->gpuData toTexture:currentDrawable.texture];
             [computeEncoder endEncoding];
@@ -403,25 +471,22 @@ void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) 
 
 void renderer_image_destroy(ORenderer *renderer, OImage image) {
     if(HANDLE_IS_NULL(image)) return;
+
     MHandle h = (MHandle){.index = image.index, .age = image.age};
-    OImageSlot* imgSlot = memory_pool_item_get(renderer->imagePool, h);
-
-    if (renderer->retireList.count >= renderer->retireList.capacity) {
-        void* newData = realloc(renderer->retireList.data, renderer->retireList.capacity * 2 * sizeof(*renderer->retireList.data));
-        if (!newData) {
-            LOG_ERROR("renderer_image_destroy(): failed to reallocate retire list.");
-            return;
+    if (memory_pool_item_invalidate(renderer->imagePool, h)) {
+        if (renderer->retireList.count >= renderer->retireList.capacity) {
+            void* newData = realloc(renderer->retireList.data, renderer->retireList.capacity * 2 * sizeof(*renderer->retireList.data));
+            if (!newData) {
+                LOG_ERROR("renderer_image_destroy(): failed to reallocate retire list.");
+                return;
+            }
+            renderer->retireList.data = newData;
+            renderer->retireList.capacity *= 2;
         }
-        renderer->retireList.data = newData;
-        renderer->retireList.capacity *= 2;
-    }
 
-    if (imgSlot) {
-        renderer->retireList.data[renderer->retireList.count].gpuData = imgSlot->gpuData;
+        renderer->retireList.data[renderer->retireList.count].image = image;
         renderer->retireList.data[renderer->retireList.count].frameAtDeletion = renderer->frameIndex;
-
         renderer->retireList.count++;
-        memory_pool_item_remove(renderer->imagePool, h);
     }
 }
 
@@ -443,12 +508,16 @@ void renderer_destroy(ORenderer *renderer){
     renderer_wait_idle(renderer);
     drain_all_images(renderer);
 
+    [renderer->residencySet removeAllocation: renderer->imageTable];
+
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         renderer->cmdAllocator[i] = nil;
     }
 
     renderer->sharedEvent = nil;
     renderer->cmdBuffer = nil;
+    renderer->imageTable = nil;
+    renderer->argumentTable = nil;
     renderer->residencySet = nil;
     renderer->queue = nil;
     renderer->device = nil;
