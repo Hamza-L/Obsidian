@@ -7,7 +7,8 @@
 
 typedef void* MPool;
 typedef struct { uint32_t index; uint32_t age; } MHandle;
-#define MHANDLE_INVALID (MHandle){0,0}
+#define HANDLE_INVALID (MHandle){0,0}
+#define HANDLE_IS_NULL(handle) ((handle).index == 0)
 
 MPool memory_pool_create(const size_t slot_size);
 void memory_pool_destroy(MPool pool);
