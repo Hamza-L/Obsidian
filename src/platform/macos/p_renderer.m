@@ -31,8 +31,6 @@
 //number of tables to bind to the argument table
 #define MAX_BUFFER_BIND_COUNT 8
 
-#define DEFAULT_IMAGE_DESC (OImageDesc) {.format = O_FORMAT_BGRA8_SRGB, .width = 0, .height = 0, .usage = O_IMAGE_READ}
-
 typedef struct {
     void * cpu;
     GPU_PTR(BUFFER) gpu;
@@ -184,7 +182,7 @@ static void drain_retired_images(ORenderer* renderer) {
     }
 }
 
-ORenderer *renderer_create(ORendererDesc *desc) {
+ORenderer *renderer_create(ORendererDesc desc) {
     (void)desc;
     NSError * err = nil;
 
@@ -338,12 +336,18 @@ void renderer_end_frame_and_present(ORenderer *renderer) {
     renderer->frameIndex++;
 }
 
-OImage renderer_image_create(ORenderer *renderer, OImageDesc *imgDesc) {
+static OImageDesc image_desc_resolve(OImageDesc desc) {
+    if (!desc.format) desc.format = O_FORMAT_BGRA8_SRGB;
+    if (!desc.usage) desc.usage = O_IMAGE_READ;
+    return desc;
+}
+
+OImage renderer_image_create(ORenderer *renderer, OImageDesc imgDesc) {
     MHandle h = memory_pool_item_acquire(renderer->imagePool);
     OImageSlot* imgSlot = (OImageSlot*)memory_pool_item_get(renderer->imagePool, h);
     if(!imgSlot) return (OImage){0};
 
-    imgSlot->desc = imgDesc ? *imgDesc : DEFAULT_IMAGE_DESC;
+    imgSlot->desc = image_desc_resolve(imgDesc);
 
     // create image
     MTLTextureDescriptor *desc = [[MTLTextureDescriptor alloc] init];
@@ -360,29 +364,29 @@ OImage renderer_image_create(ORenderer *renderer, OImageDesc *imgDesc) {
         ((GPU_TEX*)renderer->imageTable.contents)[h.id] = imgSlot->gpuData.gpuResourceID;
         [renderer->residencySet addAllocation:imgSlot->gpuData];
     } else {
-        imgSlot->desc = DEFAULT_IMAGE_DESC;
+        imgSlot->desc = (OImageDesc){0};
         memory_pool_item_remove(renderer->imagePool, h);
         return (OImage){0};
     }
     return (OImage){.id = h.id, .age = h.age};
 }
 
-void renderer_begin_render(ORenderer *renderer, const ORenderTargets *targets) {
+void renderer_begin_render(ORenderer *renderer, ORenderTargets targets) {
     if (renderer->renderEncoder) {
         LOG_WARN("renderer is already recording a renderpass");
         return; //render is already in progress
     }
 
     MTL4RenderPassDescriptor* pass = [MTL4RenderPassDescriptor new];
-    for (uint32_t i = 0; i < targets->color_count; i++) {
-        MHandle h = (MHandle){.id = targets->colors[i].image.id, .age = targets->colors[i].image.age};
+    for (uint32_t i = 0; i < targets.color_count; i++) {
+        MHandle h = (MHandle){.id = targets.colors[i].image.id, .age = targets.colors[i].image.age};
         OImageSlot * imgSlot = (OImageSlot*)memory_pool_item_get(renderer->imagePool, h);
         if (!imgSlot) {
             LOG_WARN("invalid attachment [%d] at index : %d", h.id, i);
             return;
         }
 
-        OAttachment attachment = targets->colors[i];
+        OAttachment attachment = targets.colors[i];
 
         pass.colorAttachments[i].texture = imgSlot->gpuData;
         pass.colorAttachments[i].loadAction = mtl_load_action(attachment.load);
@@ -399,12 +403,12 @@ void renderer_begin_render(ORenderer *renderer, const ORenderTargets *targets) {
 
     [renderEncoder setArgumentTable:renderer->argumentTable atStages:MTLRenderStageVertex | MTLRenderStageFragment];
 
-    if (targets->viewport.width && targets->viewport.height) {
+    if (targets.viewport.width && targets.viewport.height) {
         MTLViewport viewport;
-        viewport.width = targets->viewport.width;
-        viewport.height = targets->viewport.height;
-        viewport.originX = targets->viewport.x;
-        viewport.originY = targets->viewport.y;
+        viewport.width = targets.viewport.width;
+        viewport.height = targets.viewport.height;
+        viewport.originX = targets.viewport.x;
+        viewport.originY = targets.viewport.y;
         viewport.znear = 0;
         viewport.zfar = 1;
         [renderEncoder setViewport:viewport];
@@ -422,7 +426,7 @@ void renderer_end_render(ORenderer *renderer) {
     renderer->renderEncoder = nil;
 }
 
-OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle, const OSurfaceDesc *desc) {
+OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle, OSurfaceDesc desc) {
     // get the first free layer slot
     int32_t index = 0;
     for (int i = 0; i < MAX_LAYER_COUNT; i++) {
@@ -443,7 +447,7 @@ OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle
     layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
     layer.framebufferOnly = NO;
     layer.opaque = NO;
-    layer.displaySyncEnabled = desc->present_mode == O_PRESENT_VSYNC ? YES : NO;
+    layer.displaySyncEnabled = desc.present_mode == O_PRESENT_VSYNC ? YES : NO;
 
     NSView *view = (__bridge NSView *)native_window_handle;
     layer.contentsScale = view.window.backingScaleFactor;

@@ -32,7 +32,7 @@ static void on_refresh_render(OWindow *window, void *user) {
         {
             renderer_begin_render(
                 renderer,
-                &(ORenderTargets){
+                (ORenderTargets){
                 .color_count = 1,
                 .colors[0] = (OAttachment){.image = rt, .clear_color = {1.0f, 0.0f, 0.0f, 1.0f}, .load = O_LOAD_CLEAR},
                 .viewport = (ORect){0,0,width,height}
@@ -54,16 +54,16 @@ int main(int argc, char **argv) {
 
     log_set_level(O_LOG_DEBUG);
 
-    OWindow * window = window_create(&(OWindowDesc){.width = WINDOW_WIDTH, .height = WINDOW_HEIGHT, .x = 0, .y = 0, .title = "Obsidian", .transparent = true, .undecorated = true});
+    OWindow * window = window_create((OWindowDesc){.width = WINDOW_WIDTH, .height = WINDOW_HEIGHT, .x = 0, .y = 0, .title = "Obsidian", .transparent = true, .undecorated = true});
     input_subscribe((OInputCallbacks){.on_key_down = on_key }, window);
 
-    ORenderer *renderer = renderer_create(&(ORendererDesc){0});
+    ORenderer *renderer = renderer_create((ORendererDesc){0});
 
-    OSurface surface = renderer_surface_create(renderer, window_native_handle(window), &(OSurfaceDesc){.width = WINDOW_WIDTH, .height = WINDOW_HEIGHT, .present_mode = O_PRESENT_VSYNC});
+    OSurface surface = renderer_surface_create(renderer, window_native_handle(window), (OSurfaceDesc){.width = WINDOW_WIDTH, .height = WINDOW_HEIGHT, .present_mode = O_PRESENT_VSYNC});
 
     int32_t width, height;
     window_get_pixel_size(window, &width, &height);
-    OImage rt = renderer_image_create(renderer, &(OImageDesc){.format = O_FORMAT_BGRA8_UNORM, .width = width, .height = height, .usage = O_IMAGE_READ | O_IMAGE_RENDERTARGET});
+    OImage rt = renderer_image_create(renderer, (OImageDesc){.format = O_FORMAT_BGRA8_UNORM, .width = width, .height = height, .usage = O_IMAGE_READ | O_IMAGE_RENDERTARGET});
     if (HANDLE_IS_NULL(rt)) {
         LOG_ERROR("failed to create image\n");
         return 0;
@@ -72,7 +72,7 @@ int main(int argc, char **argv) {
     renderData.renderTarget = rt;
     renderData.renderer = renderer;
     renderData.surface = surface;
-    window_set_callbacks(window, &(OWindowCallbacks){.on_refresh = on_refresh_render}, &renderData);
+    window_set_callbacks(window, (OWindowCallbacks){.on_refresh = on_refresh_render}, &renderData);
 
     while (window_poll_events()) {
         input_poll_events();

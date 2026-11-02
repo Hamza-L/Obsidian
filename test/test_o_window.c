@@ -27,13 +27,12 @@ static void on_close(OWindow *window, void *user) {
 }
 
 void test_o_window(void) {
-    CHECK(window_create(NULL) == NULL);
-    CHECK(window_create(&(OWindowDesc){.width = 0, .height = 100}) == NULL);
+    CHECK(window_create((OWindowDesc){.width = 0, .height = 100}) == NULL);
     CHECK(!window_is_open(NULL));
     CHECK(window_native_handle(NULL) == NULL);
 
     Events events = {0};
-    OWindow *w = window_create(&(OWindowDesc){
+    OWindow *w = window_create((OWindowDesc){
         .title = "o_window test",
         .x = 50,
         .y = 50,
@@ -52,7 +51,7 @@ void test_o_window(void) {
     CHECK(window_get_pixel_size(w, &pw, &ph));
     CHECK(pw >= cw && ph >= ch);
 
-    window_set_callbacks(w, &(OWindowCallbacks){
+    window_set_callbacks(w, (OWindowCallbacks){
         .on_refresh = on_refresh,
         .on_resize = on_resize,
         .on_close = on_close,
@@ -76,10 +75,10 @@ void test_o_window(void) {
     CHECK(!window_get_content_size(w, &cw, &ch));
     window_destroy(w);
 
-    OWindow *w2 = window_create(&(OWindowDesc){.width = 100, .height = 100});
+    OWindow *w2 = window_create((OWindowDesc){.width = 100, .height = 100});
     CHECK(w2 != NULL);
     Events events2 = {0};
-    window_set_callbacks(w2, &(OWindowCallbacks){.on_close = on_close}, &events2);
+    window_set_callbacks(w2, (OWindowCallbacks){.on_close = on_close}, &events2);
     window_destroy(w2);
     CHECK(events2.closes == 0);
     CHECK(!window_poll_events());

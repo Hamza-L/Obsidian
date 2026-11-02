@@ -146,8 +146,8 @@ bool window_poll_events(void) {
     return g_app.window_count > 0;
 }
 
-OWindow *window_create(const OWindowDesc *desc) {
-    if (!desc || desc->width <= 0 || desc->height <= 0) {
+OWindow *window_create(OWindowDesc desc) {
+    if (desc.width <= 0 || desc.height <= 0) {
         LOG_ERROR("window_create: invalid desc");
         return NULL;
     }
@@ -161,36 +161,36 @@ OWindow *window_create(const OWindowDesc *desc) {
 
     window->open = true;
 
-    memcpy((void*)window->titlebar.title, desc->title, min(strlen(desc->title), MAX_TITLE_LEN));
+    memcpy((void*)window->titlebar.title, desc.title, min(strlen(desc.title), MAX_TITLE_LEN));
     window->titlebar.height = TITLEBAR_HEIGHT;
 
     DWORD style = WS_POPUP;
-    if (!desc->undecorated) {
+    if (!desc.undecorated) {
         style |= WS_CAPTION | WS_OVERLAPPED | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_THICKFRAME;
     }
 
     wchar_t title[256];
-    to_wide(desc->title, title, 256);
+    to_wide(desc.title, title, 256);
 
-    HWND hwnd = CreateWindowExW(WS_EX_APPWINDOW, WINDOW_CLASS_NAME, title, style, desc->x, desc->y,
-                                desc->width, desc->height, NULL, NULL, g_app.hinstance, window);
+    HWND hwnd = CreateWindowExW(WS_EX_APPWINDOW, WINDOW_CLASS_NAME, title, style, desc.x, desc.y,
+                                desc.width, desc.height, NULL, NULL, g_app.hinstance, window);
     if (!hwnd) {
         LOG_ERROR("CreateWindowExW failed: %lu", GetLastError());
         free(window);
         return NULL;
     }
-    set_content_size(hwnd, desc->width, desc->height);
+    set_content_size(hwnd, desc.width, desc.height);
 
     BOOL dark = TRUE;
     DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof dark);
 
-    if (desc->undecorated) {
+    if (desc.undecorated) {
         MARGINS margins = {-1, -1, -1, -1};
         DwmExtendFrameIntoClientArea(hwnd, &margins);
     }
 
     // NOTE(Hamza): doubt this is needed
-    // if (desc->transparent) {
+    // if (desc.transparent) {
     //     SetWindowLongPtrW(hwnd, GWL_EXSTYLE, GetWindowLongPtrW(hwnd, GWL_EXSTYLE) | WS_EX_LAYERED);
     //     SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
     // }
@@ -246,13 +246,9 @@ void window_set_size(OWindow *window, int32_t width, int32_t height) {
     if (window && window->hwnd && width > 0 && height > 0) set_content_size(window->hwnd, width, height);
 }
 
-void window_set_callbacks(OWindow *window, const OWindowCallbacks *callbacks, void *userdata) {
+void window_set_callbacks(OWindow *window, OWindowCallbacks callbacks, void *userdata) {
     if (!window) return;
-    if (callbacks) {
-        window->callbacks = *callbacks;
-    } else {
-        memset(&window->callbacks, 0, sizeof window->callbacks);
-    }
+    window->callbacks = callbacks;
     window->userdata = userdata;
 }
 

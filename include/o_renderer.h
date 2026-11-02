@@ -191,20 +191,20 @@ typedef struct ODraw {
     uint32_t constants_size;
 } ODraw;
 
-ORenderer *renderer_create(ORendererDesc *desc);
+ORenderer *renderer_create(ORendererDesc desc);
 void renderer_destroy(ORenderer *renderer);
 void renderer_wait_idle(ORenderer *renderer);
 
 bool renderer_begin_frame(ORenderer *renderer);
 void renderer_end_frame_and_present(ORenderer *renderer);
 
-void renderer_begin_render(ORenderer *renderer, const ORenderTargets *targets);
+void renderer_begin_render(ORenderer *renderer, ORenderTargets targets);
 void renderer_end_render(ORenderer *renderer);
 
-OImage renderer_image_create(ORenderer *renderer, OImageDesc *desc);
+OImage renderer_image_create(ORenderer *renderer, OImageDesc desc);
 void renderer_image_destroy(ORenderer *renderer, OImage image);
 
-OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle, const OSurfaceDesc *desc);
+OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle, OSurfaceDesc desc);
 void renderer_surface_destroy(ORenderer *renderer, OSurface surface);
 
 void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image);

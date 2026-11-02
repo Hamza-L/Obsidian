@@ -146,8 +146,8 @@ bool window_poll_events(void) {
     return g_app.window_count > 0;
 }
 
-OWindow *window_create(const OWindowDesc *desc) {
-    if (!desc || desc->width <= 0 || desc->height <= 0) {
+OWindow *window_create(OWindowDesc desc) {
+    if (desc.width <= 0 || desc.height <= 0) {
         LOG_ERROR("window_create: invalid desc");
         return NULL;
     }
@@ -159,7 +159,7 @@ OWindow *window_create(const OWindowDesc *desc) {
         return NULL;
     }
 
-    NSWindowStyleMask style = desc->undecorated
+    NSWindowStyleMask style = desc.undecorated
         ? NSWindowStyleMaskBorderless
         : NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
 
@@ -176,16 +176,16 @@ OWindow *window_create(const OWindowDesc *desc) {
         }
     }
 
-    NSRect rect = NSMakeRect(desc->x, desc->y, desc->width, desc->height);
+    NSRect rect = NSMakeRect(desc.x, desc.y, desc.width, desc.height);
     OMacWindow *ns_window = [[OMacWindow alloc] initWithContentRect:rect
                                                           styleMask:style
                                                             backing:NSBackingStoreBuffered
                                                               defer:NO
                                                              screen:screen];
     ns_window.releasedWhenClosed = NO;
-    ns_window.title = desc->title ? @(desc->title) : @"";
+    ns_window.title = desc.title ? @(desc.title) : @"";
     ns_window.acceptsMouseMovedEvents = YES;
-    if (desc->transparent) {
+    if (desc.transparent) {
         ns_window.opaque = NO;
         ns_window.backgroundColor = NSColor.clearColor;
     }
@@ -266,13 +266,9 @@ void window_set_size(OWindow *window, int32_t width, int32_t height) {
     [ns_window setFrame:[ns_window frameRectForContentRect:content] display:YES];
 }
 
-void window_set_callbacks(OWindow *window, const OWindowCallbacks *callbacks, void *user_data) {
+void window_set_callbacks(OWindow *window, OWindowCallbacks callbacks, void *user_data) {
     if (!window) return;
-    if (callbacks) {
-        window->callbacks = *callbacks;
-    } else {
-        memset(&window->callbacks, 0, sizeof window->callbacks);
-    }
+    window->callbacks = callbacks;
     window->user_data = user_data;
 }
 

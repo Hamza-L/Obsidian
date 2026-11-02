@@ -105,7 +105,7 @@ static bool instance_has_extensions(const char *const *names, uint32_t count) {
     return all_found;
 }
 
-ORenderer *renderer_create(ORendererDesc *desc) {
+ORenderer *renderer_create(ORendererDesc desc) {
     (void)desc;
     VkLayerProperties *availLayers = NULL;
     uint32_t nAvailLayers = 0;
