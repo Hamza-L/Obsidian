@@ -9,19 +9,19 @@ typedef struct {
 } Item;
 
 static bool handle_valid(MHandle h) {
-    return h.index != 0;
+    return h.id != 0;
 }
 
 void test_o_memory(void) {
-    MPool pool = memory_pool_create(sizeof(Item));
+    MPool pool = memory_pool_create(sizeof(Item), 1024);
     CHECK(pool != NULL);
-    CHECK(!memory_pool_is_oom(pool));
+    CHECK(memory_pool_is_valid(pool));
 
     MHandle h1 = memory_pool_item_acquire(pool);
     MHandle h2 = memory_pool_item_acquire(pool);
     CHECK(handle_valid(h1));
     CHECK(handle_valid(h2));
-    CHECK(h1.index != h2.index);
+    CHECK(h1.id != h2.id);
 
     Item *i1 = memory_pool_item_get(pool, h1);
     Item *i2 = memory_pool_item_get(pool, h2);
@@ -40,7 +40,7 @@ void test_o_memory(void) {
     CHECK(memory_pool_item_get(pool, h2) == i2);
 
     MHandle h3 = memory_pool_item_acquire(pool);
-    CHECK(h3.index == h1.index);
+    CHECK(h3.id == h1.id);
     CHECK(h3.age != h1.age);
     CHECK(memory_pool_item_get(pool, h1) == NULL);
     CHECK(memory_pool_item_get(pool, h3) != NULL);
@@ -62,7 +62,28 @@ void test_o_memory(void) {
     CHECK(all_intact);
     CHECK(memory_pool_item_get(pool, h2) != NULL);
     CHECK(((Item *)memory_pool_item_get(pool, h2))->a == 4);
-    CHECK(!memory_pool_is_oom(pool));
+    CHECK(memory_pool_is_valid(pool));
 
     memory_pool_destroy(pool);
+
+    MPool small = memory_pool_create(sizeof(Item), 4);
+    CHECK(small != NULL);
+
+    MHandle full[4];
+    for (int i = 0; i < 4; i++) {
+        full[i] = memory_pool_item_acquire(small);
+        CHECK(handle_valid(full[i]));
+    }
+    CHECK(!handle_valid(memory_pool_item_acquire(small)));
+
+    memory_pool_item_remove(small, full[1]);
+    MHandle reused = memory_pool_item_acquire(small);
+    CHECK(handle_valid(reused));
+    CHECK(reused.id == full[1].id);
+    CHECK(reused.age != full[1].age);
+    CHECK(memory_pool_item_get(small, full[1]) == NULL);
+    CHECK(memory_pool_item_get(small, reused) != NULL);
+    CHECK(!handle_valid(memory_pool_item_acquire(small)));
+
+    memory_pool_destroy(small);
 }

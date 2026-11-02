@@ -4,26 +4,26 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// Zero-initialized descs select defaults. A handle with index 0 is null.
+// Zero-initialized descs select defaults. A handle with id 0 is null.
 // Destroying a resource the GPU is still using is safe; it is released once the GPU is done.
 // Commands execute in submission order; the renderer inserts synchronization and layout transitions.
 //
 // Shader contract:
 //   Shaders are native binaries: SPIR-V on Vulkan, metallib on Metal, WGSL on WebGPU.
 //   Resource table, set 0 on Vulkan and WebGPU, buffer(0) on Metal:
-//     binding 0  images[]    indexed by OImage.index, declared with the texture type matching the image
+//     binding 0  images[]    indexed by OImage.id, declared with the texture type matching the image
 //     binding 1  samplers[]  indexed by OSampler
-//     binding 2  buffers[]   indexed by OBuffer.index, byte offsets are passed alongside in constants
+//     binding 2  buffers[]   indexed by OBuffer.id, byte offsets are passed alongside in constants
 //   Constants: push constants on Vulkan, buffer(1) on Metal, at most O_MAX_CONSTANTS_SIZE bytes.
 //   Vertex shaders pull their vertices from buffers[] with vertex_id; there is no vertex input layout.
 //   Clip space is +Y up with depth 0..1, image origin is top-left, front faces are counter-clockwise.
 
 typedef struct ORenderer ORenderer;
 
-typedef struct OBuffer { uint32_t index, age; } OBuffer;
-typedef struct OImage { uint32_t index, age; } OImage;
-typedef struct OShader { uint32_t index, age; } OShader;
-typedef struct OSurface { uint32_t index, age; } OSurface;
+typedef struct OBuffer { uint32_t id, age; } OBuffer;
+typedef struct OImage { uint32_t id, age; } OImage;
+typedef struct OShader { uint32_t id, age; } OShader;
+typedef struct OSurface { uint32_t id, age; } OSurface;
 
 #define O_MAX_COLOR_ATTACHMENTS 8
 #define O_MAX_CONSTANTS_SIZE 128
@@ -208,6 +208,5 @@ OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle
 void renderer_surface_destroy(ORenderer *renderer, OSurface surface);
 
 void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image);
-
 
 #endif

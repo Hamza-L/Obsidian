@@ -119,8 +119,8 @@ static MTLStoreAction mtl_store_action(OStoreOp store) {
 static void drain_all_images(ORenderer* renderer) {
     for (uint32_t i = 0; i < renderer->retireList.count; i++) {
         OImage img = renderer->retireList.data[i].image;
-        MHandle h = (MHandle){.index = img.index, .age = img.age};
-        OImageSlot* imgSlot = memory_pool_item_at(renderer->imagePool, img.index);
+        MHandle h = (MHandle){.id = img.id, .age = img.age};
+        OImageSlot* imgSlot = memory_pool_item_at(renderer->imagePool, img.id);
         if (imgSlot) {
             [renderer->residencySet removeAllocation: imgSlot->gpuData];
             CFBridgingRelease((__bridge CFTypeRef _Nullable)imgSlot->gpuData);
@@ -139,10 +139,10 @@ static void drain_retired_images(ORenderer* renderer) {
     for (uint32_t i = 0; i < renderer->retireList.count; i++) {
         if ( renderer->retireList.data[i].frameAtDeletion  + MAX_FRAMES_IN_FLIGHT <= renderer->frameIndex) {
             OImage img = renderer->retireList.data[i].image;
-            MHandle h = (MHandle){.index = img.index, .age = img.age};
-            OImageSlot* imgSlot = memory_pool_item_at(renderer->imagePool, img.index);
+            MHandle h = (MHandle){.id = img.id, .age = img.age};
+            OImageSlot* imgSlot = memory_pool_item_at(renderer->imagePool, img.id);
             if (imgSlot) {
-                ((GPU_TEX*)renderer->imageTable.contents)[img.index] = (MTLResourceID){0};
+                ((GPU_TEX*)renderer->imageTable.contents)[img.id] = (MTLResourceID){0};
 
                 [renderer->residencySet removeAllocation: imgSlot->gpuData];
                 CFBridgingRelease((__bridge CFTypeRef _Nullable)imgSlot->gpuData);
@@ -233,7 +233,7 @@ ORenderer *renderer_create(ORendererDesc *desc) {
         }
     }
 
-    g_renderer.imagePool = memory_pool_create(sizeof(OImageSlot));
+    g_renderer.imagePool = memory_pool_create(sizeof(OImageSlot), MAX_TEXTURE_BIND_COUNT - 1);
     g_renderer.retireList.capacity = INIT_IMAGE_RETIRE_COUNT;
     g_renderer.retireList.count = 0;
     g_renderer.retireList.data = malloc(g_renderer.retireList.capacity * sizeof(*g_renderer.retireList.data));
@@ -298,14 +298,12 @@ void renderer_end_frame_and_present(ORenderer *renderer) {
 }
 
 OImage renderer_image_create(ORenderer *renderer, OImageDesc *imgDesc) {
-    if(memory_pool_is_oom(renderer->imagePool)) return (OImage){0};
-
     MHandle h = memory_pool_item_acquire(renderer->imagePool);
     OImageSlot* imgSlot = (OImageSlot*)memory_pool_item_get(renderer->imagePool, h);
     if(!imgSlot) return (OImage){0};
 
     // check if the image table has enought capacity
-    if (h.index >= MAX_TEXTURE_BIND_COUNT) {
+    if (h.id >= MAX_TEXTURE_BIND_COUNT) {
         LOG_WARN("Cannot bind more than %d textures on the image table\n", MAX_TEXTURE_BIND_COUNT);
         memory_pool_item_remove(renderer->imagePool, h);
         return (OImage){0};
@@ -325,14 +323,14 @@ OImage renderer_image_create(ORenderer *renderer, OImageDesc *imgDesc) {
 
     if (imgSlot->gpuData) {
         //place it in argument table and residency set
-        ((GPU_TEX*)renderer->imageTable.contents)[h.index] = imgSlot->gpuData.gpuResourceID;
+        ((GPU_TEX*)renderer->imageTable.contents)[h.id] = imgSlot->gpuData.gpuResourceID;
         [renderer->residencySet addAllocation:imgSlot->gpuData];
     } else {
         imgSlot->desc = DEFAULT_IMAGE_DESC;
         memory_pool_item_remove(renderer->imagePool, h);
         return (OImage){0};
     }
-    return (OImage){.index = h.index, .age = h.age};
+    return (OImage){.id = h.id, .age = h.age};
 }
 
 void renderer_begin_render(ORenderer *renderer, const ORenderTargets *targets) {
@@ -343,10 +341,10 @@ void renderer_begin_render(ORenderer *renderer, const ORenderTargets *targets) {
 
     MTL4RenderPassDescriptor* pass = [MTL4RenderPassDescriptor new];
     for (uint32_t i = 0; i < targets->color_count; i++) {
-        MHandle h = (MHandle){.index = targets->colors[i].image.index, .age = targets->colors[i].image.age};
+        MHandle h = (MHandle){.id = targets->colors[i].image.id, .age = targets->colors[i].image.age};
         OImageSlot * imgSlot = (OImageSlot*)memory_pool_item_get(renderer->imagePool, h);
         if (!imgSlot) {
-            LOG_WARN("invalid attachment [%d] at index : %d", h.index, i);
+            LOG_WARN("invalid attachment [%d] at index : %d", h.id, i);
             return;
         }
 
@@ -428,13 +426,13 @@ OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle
 }
 
 void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) {
-    if (!surface.index || surface.age != renderer->layerList.data[surface.index - 1].age) {
+    if (!surface.id || surface.age != renderer->layerList.data[surface.id - 1].age) {
         LOG_WARN("attempting to present an already destroyed surface\n");
         return;
     }
 
-    NSView *view = renderer->layerList.data[surface.index - 1].view;
-    CAMetalLayer *layer= renderer->layerList.data[surface.index - 1].layer;
+    NSView *view = renderer->layerList.data[surface.id - 1].view;
+    CAMetalLayer *layer= renderer->layerList.data[surface.id - 1].layer;
 
     if (layer.contentsScale != view.window.backingScaleFactor) {
         layer.contentsScale = view.window.backingScaleFactor;
@@ -450,7 +448,7 @@ void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) 
     if (currentDrawable) {
         [renderer->queue waitForDrawable:currentDrawable];
 
-        OImageSlot* imgSlot = (OImageSlot*)memory_pool_item_get(renderer->imagePool, (MHandle){.index = image.index, .age = image.age});
+        OImageSlot* imgSlot = (OImageSlot*)memory_pool_item_get(renderer->imagePool, (MHandle){.id = image.id, .age = image.age});
         if (imgSlot) {
             id<MTL4ComputeCommandEncoder> computeEncoder = [renderer->cmdBuffer computeCommandEncoder];
             if (!computeEncoder) {
@@ -464,7 +462,7 @@ void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) 
             [computeEncoder copyFromTexture:imgSlot->gpuData toTexture:currentDrawable.texture];
             [computeEncoder endEncoding];
 
-            renderer->layerList.data[surface.index - 1].currentDrawable = currentDrawable;
+            renderer->layerList.data[surface.id - 1].currentDrawable = currentDrawable;
         }
     }
 }
@@ -472,7 +470,7 @@ void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) 
 void renderer_image_destroy(ORenderer *renderer, OImage image) {
     if(HANDLE_IS_NULL(image)) return;
 
-    MHandle h = (MHandle){.index = image.index, .age = image.age};
+    MHandle h = (MHandle){.id = image.id, .age = image.age};
     if (memory_pool_item_invalidate(renderer->imagePool, h)) {
         if (renderer->retireList.count >= renderer->retireList.capacity) {
             void* newData = realloc(renderer->retireList.data, renderer->retireList.capacity * 2 * sizeof(*renderer->retireList.data));
@@ -491,16 +489,16 @@ void renderer_image_destroy(ORenderer *renderer, OImage image) {
 }
 
 void renderer_surface_destroy(ORenderer *renderer, OSurface surface) {
-    if (!surface.index || surface.age != renderer->layerList.data[surface.index - 1].age) {
+    if (!surface.id || surface.age != renderer->layerList.data[surface.id - 1].age) {
         LOG_WARN("attempting to destroy an already destroyed surface\n");
         return;
     }
 
-    [renderer->queue removeResidencySet:renderer->layerList.data[surface.index - 1].layer.residencySet];
+    [renderer->queue removeResidencySet:renderer->layerList.data[surface.id - 1].layer.residencySet];
 
-    renderer->layerList.data[surface.index - 1].layer = nil;
-    renderer->layerList.data[surface.index - 1].view = nil;
-    renderer->layerList.data[surface.index - 1].age++;
+    renderer->layerList.data[surface.id - 1].layer = nil;
+    renderer->layerList.data[surface.id - 1].view = nil;
+    renderer->layerList.data[surface.id - 1].age++;
 }
 
 void renderer_destroy(ORenderer *renderer){
