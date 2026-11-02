@@ -176,11 +176,13 @@ ORenderer *renderer_create(ORendererDesc *desc) {
     }
 
     //create ressouces
-    g_renderer.imageTable = [device newBufferWithLength:MAX_TEXTURE_BIND_COUNT * sizeof(GPU_TEX)
+    g_renderer.imageTable = [device newBufferWithLength:(MAX_TEXTURE_BIND_COUNT + 1) * sizeof(GPU_TEX)
                                                 options:MTLResourceStorageModeShared];
     if (!g_renderer.imageTable) {
         LOG_ERROR("failed to create image table\n");
         return NULL;
+    } else {
+        g_renderer.imageTable.label = @"Image Table";
     }
 
     // create residency set
@@ -233,7 +235,7 @@ ORenderer *renderer_create(ORendererDesc *desc) {
         }
     }
 
-    g_renderer.imagePool = memory_pool_create(sizeof(OImageSlot), MAX_TEXTURE_BIND_COUNT - 1);
+    g_renderer.imagePool = memory_pool_create(sizeof(OImageSlot), MAX_TEXTURE_BIND_COUNT);
     g_renderer.retireList.capacity = INIT_IMAGE_RETIRE_COUNT;
     g_renderer.retireList.count = 0;
     g_renderer.retireList.data = malloc(g_renderer.retireList.capacity * sizeof(*g_renderer.retireList.data));
@@ -301,13 +303,6 @@ OImage renderer_image_create(ORenderer *renderer, OImageDesc *imgDesc) {
     MHandle h = memory_pool_item_acquire(renderer->imagePool);
     OImageSlot* imgSlot = (OImageSlot*)memory_pool_item_get(renderer->imagePool, h);
     if(!imgSlot) return (OImage){0};
-
-    // check if the image table has enought capacity
-    if (h.id >= MAX_TEXTURE_BIND_COUNT) {
-        LOG_WARN("Cannot bind more than %d textures on the image table\n", MAX_TEXTURE_BIND_COUNT);
-        memory_pool_item_remove(renderer->imagePool, h);
-        return (OImage){0};
-    }
 
     imgSlot->desc = imgDesc ? *imgDesc : DEFAULT_IMAGE_DESC;
 
