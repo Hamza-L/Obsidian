@@ -22,6 +22,9 @@
 #define MAX_FRAMES_IN_FLIGHT 2
 #define MAX_LAYER_COUNT 8
 
+#define FRAME_ARENA_ALIGN 16
+#define FRAME_ARENA_SIZE 4096
+
 #define INIT_IMAGE_RETIRE_COUNT 64
 #define MAX_TEXTURE_BIND_COUNT 256
 
@@ -29,6 +32,17 @@
 #define MAX_BUFFER_BIND_COUNT 8
 
 #define DEFAULT_IMAGE_DESC (OImageDesc) {.format = O_FORMAT_BGRA8_SRGB, .width = 0, .height = 0, .usage = O_IMAGE_READ}
+
+typedef struct {
+    void * cpu;
+    GPU_PTR(BUFFER) gpu;
+    size_t offset;
+} FrameArenaAlloc;
+
+typedef struct {
+    OImageDesc desc;
+    __unsafe_unretained id<MTLTexture> gpuData;
+} OImageSlot;
 
 struct ORenderer{
     id<MTLDevice> device;
@@ -43,14 +57,6 @@ struct ORenderer{
 
     id<MTL4RenderCommandEncoder> renderEncoder;
 
-    MPool imagePool;
-
-    struct {
-        struct { OImage image; uint64_t frameAtDeletion;} *data ;
-        uint32_t count;
-        uint32_t capacity;
-    } retireList;
-
     struct {
         struct {
             NSView *view;
@@ -60,16 +66,35 @@ struct ORenderer{
         } data[MAX_LAYER_COUNT] ;
     } layerList;
 
+    MPool bufferPool;
+    MPool imagePool;
+    struct {
+        struct { OImage image; uint64_t frameAtDeletion;} *data ;
+        uint32_t count;
+        uint32_t capacity;
+    } retireList;
+
     id<MTL4ArgumentTable> argumentTable;
+
     id<MTLBuffer> imageTable;
 
+    id<MTLBuffer> frameArena;
+    size_t frameArenaHead;
+    size_t frameArenaEnd;
 } g_renderer;
 
-typedef struct {
-    OImageDesc desc;
-    __unsafe_unretained id<MTLTexture> gpuData;
-} OImageSlot;
+FrameArenaAlloc frameArena_alloc(ORenderer * renderer, size_t size) {
+    size = (size + FRAME_ARENA_ALIGN - 1) & ~(size_t)(FRAME_ARENA_ALIGN - 1);
 
+    size_t offset = renderer->frameArenaHead;
+    if (offset + size > renderer->frameArenaEnd) {
+        LOG_ERROR("failed to allocate from frame arena with size %zu\n", size);
+        return (FrameArenaAlloc){0};
+    }
+
+    renderer->frameArenaHead = offset + size;
+    return (FrameArenaAlloc){.offset = offset, .gpu = renderer->frameArena.gpuAddress + offset, .cpu = (uint8_t*)renderer->frameArena.contents + offset};
+}
 
 static MTLPixelFormat mtl_pixel_format(OFormat format) {
     switch (format) {
@@ -185,6 +210,15 @@ ORenderer *renderer_create(ORendererDesc *desc) {
         g_renderer.imageTable.label = @"Image Table";
     }
 
+    g_renderer.frameArena = [device newBufferWithLength: FRAME_ARENA_SIZE * MAX_FRAMES_IN_FLIGHT
+                                                options:MTLResourceStorageModeShared];
+    if (!g_renderer.frameArena) {
+        LOG_ERROR("failed to create frame arena\n");
+        return NULL;
+    } else {
+        g_renderer.frameArena.label = @"Frame Arena";
+    }
+
     // create residency set
     MTLResidencySetDescriptor *rsdesc = [[MTLResidencySetDescriptor alloc] init];
     rsdesc.label = @"Primary Residency set";
@@ -196,7 +230,7 @@ ORenderer *renderer_create(ORendererDesc *desc) {
         return NULL;
     }
 
-    // create the argument table that will
+    // create the argument table that will own the resource indices/ids
     MTL4ArgumentTableDescriptor * atdesc = [MTL4ArgumentTableDescriptor new];
     atdesc.label = @"main table descriptor";
     atdesc.maxBufferBindCount = MAX_BUFFER_BIND_COUNT; //slot 0 : table, slot 1 : constants
@@ -213,6 +247,7 @@ ORenderer *renderer_create(ORendererDesc *desc) {
 
     // add resouces to residency set
     [residencySet addAllocation: g_renderer.imageTable];
+    [residencySet addAllocation: g_renderer.frameArena];
 
     // add residency set to queue
     [queue addResidencySet: residencySet];
@@ -272,6 +307,10 @@ bool renderer_begin_frame(ORenderer *renderer) {
     drain_retired_images(renderer);
 
     [renderer->cmdAllocator[slot] reset]; //cmd allocator is an arena. here reset moves the pointer back to the start of the slot
+
+    renderer->frameArenaHead = slot * FRAME_ARENA_SIZE;
+    renderer->frameArenaEnd = renderer->frameArenaHead + FRAME_ARENA_SIZE;
+
     [renderer->cmdBuffer beginCommandBufferWithAllocator:renderer->cmdAllocator[slot]];
     return true;
 }
@@ -503,6 +542,7 @@ void renderer_destroy(ORenderer *renderer){
     drain_all_images(renderer);
 
     [renderer->residencySet removeAllocation: renderer->imageTable];
+    [renderer->residencySet removeAllocation: renderer->frameArena];
 
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         renderer->cmdAllocator[i] = nil;
@@ -511,6 +551,7 @@ void renderer_destroy(ORenderer *renderer){
     renderer->sharedEvent = nil;
     renderer->cmdBuffer = nil;
     renderer->imageTable = nil;
+    renderer->frameArena = nil;
     renderer->argumentTable = nil;
     renderer->residencySet = nil;
     renderer->queue = nil;
