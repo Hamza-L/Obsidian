@@ -453,8 +453,9 @@ void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) 
 
             [computeEncoder setArgumentTable:renderer->argumentTable];
 
-            [computeEncoder barrierAfterQueueStages:MTLStageFragment beforeStages:MTLStageBlit visibilityOptions:MTL4VisibilityOptionNone];
+            [computeEncoder barrierAfterQueueStages:MTLStageDispatch | MTLStageFragment beforeStages:MTLStageBlit visibilityOptions:MTL4VisibilityOptionNone];
             [computeEncoder copyFromTexture:imgSlot->gpuData toTexture:currentDrawable.texture];
+            [computeEncoder barrierAfterStages:MTLStageBlit beforeQueueStages:MTLStageDispatch | MTLStageFragment visibilityOptions:MTL4VisibilityOptionNone];
             [computeEncoder endEncoding];
 
             renderer->layerList.data[surface.id - 1].currentDrawable = currentDrawable;
