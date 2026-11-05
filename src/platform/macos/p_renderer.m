@@ -27,6 +27,7 @@
 
 #define INIT_IMAGE_RETIRE_COUNT 64
 #define MAX_TEXTURE_BIND_COUNT 256
+#define MAX_SHADER_COUNT 64
 
 //number of tables to bind to the argument table
 #define MAX_BUFFER_BIND_COUNT 8
@@ -42,9 +43,19 @@ typedef struct {
     __unsafe_unretained id<MTLTexture> gpuData;
 } OImageSlot;
 
+typedef struct {
+    OShaderDesc desc;
+    __unsafe_unretained id<MTLLibrary> lib;
+    union {
+        __unsafe_unretained id<MTLComputePipelineState> compute;
+        __unsafe_unretained id<MTLRenderPipelineState> graphics;
+    } pso;
+} OShaderSlot;
+
 struct ORenderer{
     id<MTLDevice> device;
     id<MTL4CommandQueue> queue;
+    id<MTL4Compiler> compiler;
     id<MTLResidencySet> residencySet;
 
     id<MTL4CommandAllocator> cmdAllocator[MAX_FRAMES_IN_FLIGHT]; //memory that holds the commands
@@ -66,6 +77,8 @@ struct ORenderer{
 
     MPool bufferPool;
     MPool imagePool;
+    MPool shaderPool;
+
     struct {
         struct { OImage image; uint64_t frameAtDeletion;} *data ;
         uint32_t count;
@@ -198,6 +211,15 @@ ORenderer *renderer_create(ORendererDesc desc) {
         return NULL;
     }
 
+    MTL4CompilerDescriptor *cDesc = [MTL4CompilerDescriptor new];
+    cDesc.label = @"Compiler";
+    id<MTL4Compiler> compiler = [device newCompilerWithDescriptor:cDesc
+                                                            error:&err];
+    if (!compiler) {
+        LOG_ERROR("failed to create Metal compiler");
+        return NULL;
+    }
+
     //create ressouces
     g_renderer.imageTable = [device newBufferWithLength:(MAX_TEXTURE_BIND_COUNT + 1) * sizeof(GPU_TEX)
                                                 options:MTLResourceStorageModeShared];
@@ -252,6 +274,7 @@ ORenderer *renderer_create(ORendererDesc desc) {
 
     g_renderer.device = device;
     g_renderer.queue = queue;
+    g_renderer.compiler = compiler;
     g_renderer.residencySet = residencySet;
 
     if (!(g_renderer.cmdBuffer = [g_renderer.device newCommandBuffer])) {
@@ -269,6 +292,7 @@ ORenderer *renderer_create(ORendererDesc desc) {
     }
 
     g_renderer.imagePool = memory_pool_create(sizeof(OImageSlot), MAX_TEXTURE_BIND_COUNT);
+    g_renderer.shaderPool = memory_pool_create(sizeof(OShaderSlot), MAX_SHADER_COUNT);
     g_renderer.retireList.capacity = INIT_IMAGE_RETIRE_COUNT;
     g_renderer.retireList.count = 0;
     g_renderer.retireList.data = malloc(g_renderer.retireList.capacity * sizeof(*g_renderer.retireList.data));
@@ -566,4 +590,55 @@ void renderer_destroy(ORenderer *renderer){
     free(renderer->retireList.data);
     renderer->retireList.capacity = 0;
     renderer->retireList.count = 0;
+}
+
+OShader renderer_shader_create(ORenderer *renderer, OShaderDesc desc) {
+    if ((!desc.data.binary && !desc.data.source) || (!desc.binarySize || !desc.sourceSize)) {
+        LOG_ERROR("no shader data provided. Cannot create shader\n");
+        return (OShader){0};
+    }
+
+    NSError * err = nil;
+    MHandle h = memory_pool_item_acquire(renderer->shaderPool);
+    OShaderSlot * slot = memory_pool_item_get(renderer->shaderPool, h);
+    if (!slot) {
+        LOG_ERROR("failed to allocate shader from shader pool\n");
+        return (OShader){0};
+    }
+
+    slot->desc = desc;
+
+    if (desc.data.binary && desc.data.source) {
+        LOG_INFO("both binary and source shader data provided. using binary\n");
+    }
+
+    id<MTLLibrary> lib = nil;
+
+    if (desc.data.binary) {
+        dispatch_data_t d = dispatch_data_create(desc.data.binary, desc.binarySize, NULL, DISPATCH_DATA_DESTRUCTOR_DEFAULT);
+        lib = [renderer->device newLibraryWithData:d error:&err];
+    } else if (desc.data.source) {
+        MTL4LibraryDescriptor * ld = [MTL4LibraryDescriptor new];
+        ld.source = [[NSString alloc] initWithBytes:desc.data.source
+                                             length:desc.sourceSize
+                                           encoding:NSUTF8StringEncoding];
+        lib = [renderer->compiler newLibraryWithDescriptor:ld error: &err];
+    }
+
+    if (!lib) {
+        LOG_ERROR("failed to create MTLLibrary from shader data: %s", err.localizedDescription.UTF8String);
+        memory_pool_item_remove(renderer->shaderPool, h);
+        return (OShader){0};
+    }
+
+    return (OShader){.id = h.id, .age = h.age};
+}
+
+void renderer_shader_update(ORenderer *renderer, OShader shader, OShaderDesc desc) {
+
+
+}
+
+void renderer_shader_destroy(ORenderer *renderer, OShader shader) {
+
 }

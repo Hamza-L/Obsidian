@@ -147,6 +147,17 @@ typedef struct OImageDesc {
     OImageUsage usage;
 } OImageDesc;
 
+typedef struct OShaderDesc {
+    struct {
+        const uint8_t * source;
+        const void * binary;
+    } data;
+    size_t binarySize;
+    size_t sourceSize;
+    const char * entry;
+    OShaderStage stage;
+} OShaderDesc;
+
 typedef struct ORect {
     int32_t x, y;
     uint32_t width, height;
@@ -206,6 +217,10 @@ void renderer_image_destroy(ORenderer *renderer, OImage image);
 
 OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle, OSurfaceDesc desc);
 void renderer_surface_destroy(ORenderer *renderer, OSurface surface);
+
+OShader renderer_shader_create(ORenderer *renderer, OShaderDesc desc);
+void renderer_shader_update(ORenderer *renderer, OShader shader, OShaderDesc desc);
+void renderer_shader_destroy(ORenderer *renderer, OShader shader);
 
 void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image);
 
