@@ -23,7 +23,6 @@
 #include "p_vulkan_loader.h"
 #include "p_vulkan_limits.h"
 
-#include "o_window.h"
 #include "o_log.h"
 
 #include <stdlib.h>
@@ -141,6 +140,15 @@ struct Swapchain {
 
     VkPhysicalDeviceMemoryProperties memProps;
 };
+
+static bool get_window_client_size(void *hwnd, int32_t *width, int32_t *height) {
+    RECT r = {0};
+    if (hwnd || !GetClientRect(hwnd, &r)) return false;
+    *width = r.right - r.left;
+    *height = r.bottom - r.top;
+    if (*width <= 0 || *height <= 0) return false;
+    return true;
+}
 
 static uint32_t find_memory_type(Swapchain *sc, uint32_t type_filter, VkMemoryPropertyFlags properties) {
     for (uint32_t i = 0; i < sc->memProps.memoryTypeCount; i++) {
@@ -407,18 +415,17 @@ static IDXGIAdapter *find_adapter_matching_vulkan_device(VkPhysicalDevice phys) 
     return match;
 }
 
-static bool dxgi_init(OWindow *window, Swapchain *sc) {
+static bool dxgi_init(void *native_window_handle, Swapchain *sc) {
     HRESULT hr;
 
-    HWND hwnd = (HWND)window_native_handle(window);
+    HWND hwnd = (HWND)native_window_handle;
     if (!hwnd) {
         LOG_ERROR("ne_swapchain_dxgi: failed to get HWND");
         return false;
     }
 
     int32_t fb_w = 0, fb_h = 0;
-    if (!window_get_content_size(window, &fb_w, &fb_h)) return false;
-    if (fb_w <= 0 || fb_h <= 0) return false;
+    if(!get_window_client_size(hwnd, &fb_w, &fb_h)) return false;
 
     sc->extent.width = (uint32_t)fb_w;
     sc->extent.height = (uint32_t)fb_h;
@@ -615,13 +622,13 @@ void swapchain_destroy(Swapchain *sc) {
     free(sc);
 }
 
-bool swapchain_recreate(OWindow *window, Swapchain *sc) {
+bool swapchain_recreate(void *native_window_handle, Swapchain *sc) {
     vkDeviceWaitIdle(sc->device);
 
     release_vk_images(sc);
 
     int32_t fb_w = 0, fb_h = 0;
-    if (!window_get_content_size(window, &fb_w, &fb_h)) return false;
+    if(!get_window_client_size(native_window_handle, &fb_w, &fb_h)) return false;
     if (fb_w <= 0 || fb_h <= 0) return false;
 
     sc->extent.width = (uint32_t)fb_w;
@@ -739,7 +746,7 @@ SwapchainPresentResult swapchain_present(Swapchain *sc, VkQueue queue, VkSemapho
     return SWAPCHAIN_PRESENT_SUCCESS;
 }
 
-Swapchain *swapchain_create(OWindow *window, SwapchainDesc desc) {
+Swapchain *swapchain_create(void *native_window_handle, SwapchainDesc desc) {
     if (!desc.device || !desc.physDevice || !desc.instance) {
         return NULL;
     }
@@ -754,7 +761,7 @@ Swapchain *swapchain_create(OWindow *window, SwapchainDesc desc) {
 
     vkGetPhysicalDeviceMemoryProperties(sc->phys, &sc->memProps);
 
-    if (!dxgi_init(window, sc)) {
+    if (!dxgi_init(native_window_handle, sc)) {
         swapchain_destroy(sc);
         return NULL;
     }

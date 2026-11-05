@@ -30,8 +30,8 @@ typedef struct SwapchainDesc {
     bool vsync;
 } SwapchainDesc;
 
-Swapchain *swapchain_create(OWindow *window, SwapchainDesc desc);
-bool swapchain_recreate(OWindow *window, Swapchain *sc);
+Swapchain *swapchain_create(void *native_window_handle, SwapchainDesc desc);
+bool swapchain_recreate(void *native_window_handle, Swapchain *sc);
 void swapchain_destroy(Swapchain *sc);
 
 SwapchainAcquireResult swapchain_acquire(Swapchain *sc, VkSemaphore signal_sem);

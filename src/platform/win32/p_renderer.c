@@ -2,6 +2,7 @@
 #include "o_log.h"
 #include "o_window.h"
 
+#include "p_swapchain.h"
 #include "p_vulkan_loader.h"
 #include "p_vulkan_limits.h"
 
@@ -10,6 +11,8 @@
 
 #include <stdlib.h>
 #include <string.h>
+
+#define MAX_LAYER_COUNT 8
 
 static const char *const k_instance_extensions[] = {
     VK_KHR_SURFACE_EXTENSION_NAME,
@@ -31,12 +34,21 @@ struct ORenderer {
     VkInstance instance;
     VkDevice device;
     VkPhysicalDevice physDevice;
+
     struct {
         VkQueue graphics;
         VkQueue transfer;
         uint32_t graphicsqfi;
         uint32_t transferqfi;
     } queue;
+
+    struct {
+        struct {
+            void *hwnd;
+            Swapchain *swapchain;
+            uint32_t age;
+        } data[MAX_LAYER_COUNT] ;
+    } layerList;
 
     HMODULE vulkanLib;
 } g_renderer;
@@ -112,6 +124,8 @@ ORenderer *renderer_create(ORendererDesc desc) {
 
     const uint32_t nReqInstanceExts = COUNT_OF(k_instance_extensions);
     const uint32_t nReqDeviceExts = COUNT_OF(k_device_extensions);
+
+    memset(&g_renderer, 0, sizeof(g_renderer));
 
     // load the vulkan dll
     if (!g_renderer.vulkanLib) {
@@ -328,4 +342,75 @@ void renderer_destroy(ORenderer *renderer) {
     if (renderer->vulkanLib) FreeLibrary(renderer->vulkanLib);
 
     memset(renderer, 0, sizeof(*renderer));
+}
+
+
+void renderer_wait_idle(ORenderer *renderer) {
+    (void)renderer;
+}
+
+bool renderer_begin_frame(ORenderer *renderer) {
+    (void)renderer;
+    return false;
+}
+
+void renderer_end_frame_and_present(ORenderer *renderer) {
+    (void)renderer;
+}
+
+void renderer_begin_render(ORenderer *renderer, ORenderTargets targets) {
+    (void)renderer;
+    (void)targets;
+}
+
+void renderer_end_render(ORenderer *renderer) {
+    (void)renderer;
+}
+
+OImage renderer_image_create(ORenderer *renderer, OImageDesc desc) {
+    (void)renderer;
+    (void)desc;
+    return (OImage){0};
+}
+
+void renderer_image_destroy(ORenderer *renderer, OImage image) {
+    (void)renderer;
+    (void)image;
+}
+
+OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle, OSurfaceDesc desc) {
+    (void)renderer;
+    (void)native_window_handle;
+    (void)desc;
+
+    // get the first free layer slot
+    int32_t freeID = 0;
+    for (int i = 0; i < MAX_LAYER_COUNT; i++) {
+        if (renderer->layerList.data[i].hwnd == NULL) {
+            freeID = i + 1;
+            break;
+        }
+    }
+
+    // return if all slots are busy
+    if (!freeID) {
+        LOG_WARN("OUT OF CAPACITY: attempting to create a surface beyond the capacity[8]\n");
+        return (OSurface){0};
+    }
+
+    renderer->layerList.data[freeID - 1].hwnd = native_window_handle;
+    renderer->layerList.data[freeID - 1].swapchain = swapchain_create(native_window_handle, (SwapchainDesc){.device = g_renderer.device, .physDevice = g_renderer.physDevice, .instance = g_renderer.instance, .vsync = true});
+    uint32_t currAge = renderer->layerList.data[freeID - 1].age;
+    return (OSurface){.id = freeID, .age = currAge};
+}
+
+void renderer_surface_destroy(ORenderer *renderer, OSurface surface) {
+    (void)renderer;
+    (void)surface;
+}
+
+void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) {
+    (void)renderer;
+    (void)surface;
+    (void)image;
 }
