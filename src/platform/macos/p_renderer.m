@@ -452,16 +452,16 @@ void renderer_end_render(ORenderer *renderer) {
 
 OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle, OSurfaceDesc desc) {
     // get the first free layer slot
-    int32_t index = 0;
+    int32_t freeID = 0;
     for (int i = 0; i < MAX_LAYER_COUNT; i++) {
         if (renderer->layerList.data[i].layer == NULL) {
-            index = i + 1;
+            freeID = i + 1;
             break;
         }
     }
 
     // return if all slots are busy
-    if (!index) {
+    if (!freeID) {
         LOG_WARN("OUT OF CAPACITY: attempting to create a surface beyond the capacity[8]\n");
         return (OSurface){0};
     }
@@ -483,8 +483,8 @@ OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle
 
     renderer->layerList.data[index - 1].view = view;
     renderer->layerList.data[index - 1].layer = layer;
-    uint32_t currAge = renderer->layerList.data[index - 1].age;
-    return (OSurface){index, currAge};
+    uint32_t currAge = renderer->layerList.data[freeID - 1].age;
+    return (OSurface){freeID, currAge};
 }
 
 void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) {
