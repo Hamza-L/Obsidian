@@ -446,7 +446,6 @@ void renderer_image_destroy(ORenderer *renderer, OImage image) {
 }
 
 OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle, OSurfaceDesc desc) {
-    (void)desc;
 
     // get the first free layer slot
     int32_t freeID = 0;
@@ -464,7 +463,7 @@ OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle
     }
 
     uint32_t index = freeID - 1;
-    Swapchain *swapchain = swapchain_create(native_window_handle, (SwapchainDesc){.device = g_renderer.device, .physDevice = g_renderer.physDevice, .instance = g_renderer.instance, .vsync = true});
+    Swapchain *swapchain = swapchain_create(native_window_handle, (SwapchainDesc){.device = g_renderer.device, .physDevice = g_renderer.physDevice, .instance = g_renderer.instance, .vsync = desc.present_mode == O_PRESENT_VSYNC});
     if (!swapchain) {
         LOG_ERROR("renderer_surface_create: failed to create swapchain\n");
         return (OSurface){0};
