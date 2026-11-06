@@ -131,9 +131,6 @@ struct Swapchain {
     VkDeviceMemory vkMemories[SWAPCHAIN_IMAGE_COUNT];
     ID3D11DeviceContext *d3dContext;
 
-    /* Sync: CPU fence for present safety */
-    VkFence presentFence;
-    bool presentFenceSubmitted;
     bool needs_recreate;
 
     uint32_t acquiredImageIndex;
@@ -581,20 +578,6 @@ static bool dxgi_init(void *native_window_handle, Swapchain *sc) {
         return false;
     }
 
-    /* ── Create present fence ──────────────────────────────────────── */
-    if (sc->presentFence == VK_NULL_HANDLE) {
-        VkFenceCreateInfo fci;
-        memset(&fci, 0, sizeof(fci));
-        fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-
-        VkResult vr = vkCreateFence(sc->device, &fci, NULL, &sc->presentFence);
-        if (vr != VK_SUCCESS) {
-            LOG_ERROR("vkCreateFence (present) failed (vr=%d)", (int)vr);
-            return false;
-        }
-    }
-
     sc->needs_recreate = false;
     return true;
 }
@@ -605,11 +588,6 @@ void swapchain_destroy(Swapchain *sc) {
     vkDeviceWaitIdle(sc->device);
 
     release_vk_images(sc);
-
-    if (sc->presentFence != VK_NULL_HANDLE) {
-        vkDestroyFence(sc->device, sc->presentFence, NULL);
-        sc->presentFence = VK_NULL_HANDLE;
-    }
 
     if (sc->d3dContext) { ID3D11DeviceContext_Release(sc->d3dContext); sc->d3dContext = NULL; }
     if (sc->dcompVisual) { sc->dcompVisual->lpVtbl->Release(sc->dcompVisual); sc->dcompVisual = NULL; }
@@ -622,22 +600,18 @@ void swapchain_destroy(Swapchain *sc) {
     free(sc);
 }
 
-bool swapchain_recreate(void *native_window_handle, Swapchain *sc) {
+bool swapchain_resize(Swapchain *sc, uint32_t width, uint32_t height) {
     vkDeviceWaitIdle(sc->device);
 
     release_vk_images(sc);
 
-    int32_t fb_w = 0, fb_h = 0;
-    if(!get_window_client_size(native_window_handle, &fb_w, &fb_h)) return false;
-    if (fb_w <= 0 || fb_h <= 0) return false;
-
-    sc->extent.width = (uint32_t)fb_w;
-    sc->extent.height = (uint32_t)fb_h;
+    sc->extent.width = (uint32_t)width;
+    sc->extent.height = (uint32_t)height;
 
     HRESULT hr = IDXGISwapChain1_ResizeBuffers(
         sc->dxgiSwapchain,
         SWAPCHAIN_IMAGE_COUNT,
-        (UINT)fb_w, (UINT)fb_h,
+        width, height,
         DXGI_FORMAT_B8G8R8A8_UNORM,
         0);
 
@@ -650,12 +624,10 @@ bool swapchain_recreate(void *native_window_handle, Swapchain *sc) {
         return false;
     }
 
-    sc->needs_recreate = false;
     return true;
 }
 
-SwapchainAcquireResult swapchain_acquire(Swapchain *sc, VkSemaphore signal_sem) {
-    (void)signal_sem;
+SwapchainAcquireResult swapchain_acquire(Swapchain *sc, uint32_t * imageIndex) {
     /*
      * DXGI flip model: GetCurrentBackBufferIndex() returns the index of the
      * buffer that is not currently being presented or queued for presentation.
@@ -681,34 +653,27 @@ SwapchainAcquireResult swapchain_acquire(Swapchain *sc, VkSemaphore signal_sem) 
     }
 
     sc->acquiredImageIndex = index;
+
+    if (imageIndex) {
+        *imageIndex = index;
+    }
+
     return SWAPCHAIN_ACQUIRE_SUCCESS;
 }
 
-SwapchainPresentResult swapchain_present(Swapchain *sc, VkQueue queue, VkSemaphore wait_sem, VkFence render_fence) {
-    (void)queue;
-    (void)wait_sem;
-
-    /* The CPU-mediated copy needs this frame to finish, not the entire device.
-     * Standard Vulkan WSI avoids this CPU wait and is the default demo path. */
-    if (render_fence == VK_NULL_HANDLE ||
-        vkWaitForFences(sc->device, 1, &render_fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS) {
-        return SWAPCHAIN_PRESENT_FAILED;
-    }
-
+SwapchainPresentResult swapchain_present(Swapchain *sc, uint32_t imageIndex) {
     /* Acquire keyed mutex on the shared texture, copy to swapchain, then release */
-    uint32_t image_index = sc->acquiredImageIndex;
-
     IDXGIKeyedMutex *mutex = NULL;
-    HRESULT hr = ID3D11Texture2D_QueryInterface(sc->sharedTextures[image_index],
+    HRESULT hr = ID3D11Texture2D_QueryInterface(sc->sharedTextures[imageIndex],
         &IID_IDXGIKeyedMutex_NE, (void **)&mutex);
     if (FAILED(hr) || !mutex) {
-        LOG_ERROR("QueryInterface(IDXGIKeyedMutex) for shared tex %u failed (hr=0x%08lx)", image_index, hr);
+        LOG_ERROR("QueryInterface(IDXGIKeyedMutex) for shared tex %u failed (hr=0x%08lx)", imageIndex, hr);
         return SWAPCHAIN_PRESENT_FAILED;
     }
 
     hr = IDXGIKeyedMutex_AcquireSync(mutex, 0, 5000);
     if (FAILED(hr)) {
-        LOG_ERROR("IDXGIKeyedMutex::AcquireSync for shared tex %u failed (hr=0x%08lx)", image_index, hr);
+        LOG_ERROR("IDXGIKeyedMutex::AcquireSync for shared tex %u failed (hr=0x%08lx)", imageIndex, hr);
         IDXGIKeyedMutex_Release(mutex);
         return SWAPCHAIN_PRESENT_FAILED;
     }
@@ -722,7 +687,7 @@ SwapchainPresentResult swapchain_present(Swapchain *sc, VkQueue queue, VkSemapho
         return SWAPCHAIN_PRESENT_FAILED;
     }
 
-    ID3D11DeviceContext_CopyResource(sc->d3dContext, (ID3D11Resource *)back_buffer, (ID3D11Resource *)sc->sharedTextures[image_index]);
+    ID3D11DeviceContext_CopyResource(sc->d3dContext, (ID3D11Resource *)back_buffer, (ID3D11Resource *)sc->sharedTextures[imageIndex]);
     ID3D11Texture2D_Release(back_buffer);
     IDXGIKeyedMutex_ReleaseSync(mutex, 0);
     IDXGIKeyedMutex_Release(mutex);

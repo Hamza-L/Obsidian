@@ -31,10 +31,10 @@ typedef struct SwapchainDesc {
 } SwapchainDesc;
 
 Swapchain *swapchain_create(void *native_window_handle, SwapchainDesc desc);
-bool swapchain_recreate(void *native_window_handle, Swapchain *sc);
+bool swapchain_resize(Swapchain *sc, uint32_t width, uint32_t height);
 void swapchain_destroy(Swapchain *sc);
 
-SwapchainAcquireResult swapchain_acquire(Swapchain *sc, VkSemaphore signal_sem);
-SwapchainPresentResult swapchain_present(Swapchain *sc, VkQueue queue, VkSemaphore wait_sem, VkFence render_fence);
+SwapchainAcquireResult swapchain_acquire(Swapchain *sc, uint32_t * imageIndex);
+SwapchainPresentResult swapchain_present(Swapchain *sc, uint32_t imageIndex);
 
 #endif /* SWAPCHAIN_H */
