@@ -585,6 +585,8 @@ static bool dxgi_init(void *native_window_handle, Swapchain *sc) {
 /* ── Interface implementation ──────────────────────────────────────────── */
 
 void swapchain_destroy(Swapchain *sc) {
+    if (!sc) return;
+
     vkDeviceWaitIdle(sc->device);
 
     release_vk_images(sc);
