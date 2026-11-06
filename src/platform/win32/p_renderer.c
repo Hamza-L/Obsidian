@@ -1,10 +1,12 @@
 #include "o_renderer.h"
 #include "o_log.h"
 #include "o_window.h"
+#include "o_memory.h"
 
-#include "p_swapchain.h"
 #include "p_vulkan_loader.h"
 #include "p_vulkan_limits.h"
+
+#include "p_renderer_internal.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -12,7 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_LAYER_COUNT 8
+#define COUNT_OF(array) ((uint32_t)(sizeof(array) / sizeof((array)[0])))
 
 static const char *const k_instance_extensions[] = {
     VK_KHR_SURFACE_EXTENSION_NAME,
@@ -28,30 +30,7 @@ static const char *const k_device_extensions[] = {
     // VK_KHR_UNIFIED_IMAGE_LAYOUTS_EXTENSION_NAME
 };
 
-#define COUNT_OF(array) ((uint32_t)(sizeof(array) / sizeof((array)[0])))
-
-struct ORenderer {
-    VkInstance instance;
-    VkDevice device;
-    VkPhysicalDevice physDevice;
-
-    struct {
-        VkQueue graphics;
-        VkQueue transfer;
-        uint32_t graphicsqfi;
-        uint32_t transferqfi;
-    } queue;
-
-    struct {
-        struct {
-            void *hwnd;
-            Swapchain *swapchain;
-            uint32_t age;
-        } data[MAX_LAYER_COUNT] ;
-    } layerList;
-
-    HMODULE vulkanLib;
-} g_renderer;
+ORenderer g_renderer;
 
 bool vk_test_surface_present_support(OWindow * window) {
     VkSurfaceKHR surface = VK_NULL_HANDLE;
@@ -78,6 +57,52 @@ bool vk_test_surface_present_support(OWindow * window) {
     vkDestroySurfaceKHR(g_renderer.instance, surface, NULL);
 
     return res == VK_SUCCESS && supportsPresent == VK_TRUE;
+}
+
+static bool create_fences(VkDevice device, VkFence *fences, size_t count) {
+    VkFenceCreateInfo fci = {0};
+    fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+    for (uint32_t i = 0; i < count; i++) {
+        VkResult vr = vkCreateFence(device, &fci, NULL, &fences[i]);
+        if (vr != VK_SUCCESS) {
+            LOG_ERROR("vkCreateFence[%u] failed (vr=%d)", (unsigned)i, (int)vr);
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool create_command_buffers(VkDevice device, VkCommandPool cmdPool, VkCommandBuffer cmdBuffers[], size_t count) {
+    VkCommandBufferAllocateInfo cbai;
+    memset(&cbai, 0, sizeof(cbai));
+    cbai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    cbai.commandPool = cmdPool;
+    cbai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    cbai.commandBufferCount = count;
+
+    VkResult vr = vkAllocateCommandBuffers(device, &cbai, cmdBuffers);
+    if (vr != VK_SUCCESS) {
+        LOG_ERROR("vkAllocateCommandBuffers failed (vr=%d)", (int)vr);
+        return false;
+    }
+
+    return true;
+}
+
+static bool create_command_pool(VkDevice device, uint32_t queueFamilyIndex, VkCommandPool* cmdPool) {
+    VkCommandPoolCreateInfo cpci;
+    memset(&cpci, 0, sizeof(cpci));
+    cpci.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    cpci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    cpci.queueFamilyIndex = queueFamilyIndex;
+
+    VkResult vr = vkCreateCommandPool(device, &cpci, NULL, cmdPool);
+    if (vr != VK_SUCCESS || cmdPool == VK_NULL_HANDLE) {
+        LOG_ERROR("vkCreateCommandPool failed (vr=%d)", (int)vr);
+        return false;
+    }
+    return true;
 }
 
 static bool device_has_extensions(VkPhysicalDevice device, const char *const *names, uint32_t count) {
@@ -117,15 +142,22 @@ static bool instance_has_extensions(const char *const *names, uint32_t count) {
     return all_found;
 }
 
+bool create_default_graphics_pipeline(void) {
+    return false;
+}
+
 ORenderer *renderer_create(ORendererDesc desc) {
     (void)desc;
+    memset(&g_renderer, 0, sizeof(g_renderer));
+
+    g_renderer.shaderPool = memory_pool_create(sizeof(OShaderSlot), MAX_SHADER_COUNT);
+    g_renderer.imagePool = memory_pool_create(sizeof(OImageSlot), MAX_TEXTURE_COUNT);
+
     VkLayerProperties *availLayers = NULL;
     uint32_t nAvailLayers = 0;
 
     const uint32_t nReqInstanceExts = COUNT_OF(k_instance_extensions);
     const uint32_t nReqDeviceExts = COUNT_OF(k_device_extensions);
-
-    memset(&g_renderer, 0, sizeof(g_renderer));
 
     // load the vulkan dll
     if (!g_renderer.vulkanLib) {
@@ -331,11 +363,34 @@ ORenderer *renderer_create(ORendererDesc desc) {
         g_renderer.queue.transfer = g_renderer.queue.graphics;
     }
 
+    if (!create_command_pool(g_renderer.device, g_renderer.queue.graphicsqfi, &g_renderer.cmdPool)) {
+        LOG_ERROR("failed to create command pool");
+        renderer_destroy(&g_renderer);
+        return NULL;
+    }
+
+    if (!create_command_buffers(g_renderer.device, g_renderer.cmdPool, g_renderer.cmdBuffer, MAX_FRAMES_IN_FLIGHT)) {
+        LOG_ERROR("failed to create command buffers");
+        renderer_destroy(&g_renderer);
+        return NULL;
+    }
+
+    if (!create_fences(g_renderer.device, g_renderer.fences, MAX_FRAMES_IN_FLIGHT)) {
+        LOG_ERROR("failed to create in flight fences");
+        renderer_destroy(&g_renderer);
+        return NULL;
+    }
+
     return &g_renderer;
 }
 
 void renderer_destroy(ORenderer *renderer) {
     if (!renderer) return;
+
+    for (uint32_t i = 0; i < MAX_LAYER_COUNT; i++) {
+        renderer->layerList.data[i].hwnd = NULL;
+        swapchain_destroy(renderer->layerList.data[i].swapchain);
+    }
 
     if (renderer->device) vkDestroyDevice(renderer->device, NULL);
     if (renderer->instance) vkDestroyInstance(renderer->instance, NULL);
@@ -346,7 +401,7 @@ void renderer_destroy(ORenderer *renderer) {
 
 
 void renderer_wait_idle(ORenderer *renderer) {
-    (void)renderer;
+    vkDeviceWaitIdle(renderer->device);
 }
 
 bool renderer_begin_frame(ORenderer *renderer) {
@@ -398,15 +453,24 @@ OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle
         return (OSurface){0};
     }
 
-    renderer->layerList.data[freeID - 1].hwnd = native_window_handle;
-    renderer->layerList.data[freeID - 1].swapchain = swapchain_create(native_window_handle, (SwapchainDesc){.device = g_renderer.device, .physDevice = g_renderer.physDevice, .instance = g_renderer.instance, .vsync = true});
-    uint32_t currAge = renderer->layerList.data[freeID - 1].age;
+    uint32_t index = freeID - 1;
+    renderer->layerList.data[index].hwnd = native_window_handle;
+    renderer->layerList.data[index].swapchain = swapchain_create(native_window_handle, (SwapchainDesc){.device = g_renderer.device, .physDevice = g_renderer.physDevice, .instance = g_renderer.instance, .vsync = true});
+    uint32_t currAge = renderer->layerList.data[index].age;
     return (OSurface){.id = freeID, .age = currAge};
 }
 
 void renderer_surface_destroy(ORenderer *renderer, OSurface surface) {
     (void)renderer;
     (void)surface;
+    if (!surface.id) {
+        LOG_WARN("renderer_surface_destory: surface handle invalid\n");
+        return;
+    }
+
+    uint32_t index = surface.id - 1;
+    renderer->layerList.data[index].age++;
+    swapchain_destroy(renderer->layerList.data[index].swapchain);
 }
 
 void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) {
