@@ -50,7 +50,7 @@ struct ORenderer {
 };
 
 struct OShaderSlot{
-    OShaderDesc desc;
+    OShaderStage stage;
     VkShaderModule module;
     bool compiled;
 };

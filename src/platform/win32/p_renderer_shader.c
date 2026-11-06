@@ -11,8 +11,9 @@ static bool glslang_ready = false;
 
 OShader renderer_shader_create(ORenderer *renderer, OShaderDesc desc) {
     (void)renderer;
-    (void)desc;
     OShader shader = {0};
+    if (!shader_desc_is_valid(desc)) return shader;
+
     if (!glslang_ready) {
         if (!glslang_initialize_process()) {
             LOG_ERROR("failed to initialize glslang");

@@ -32,7 +32,7 @@ typedef struct {
 } OImageSlot;
 
 typedef struct {
-    OShaderDesc desc;
+    OShaderStage stage;
     __unsafe_unretained id<MTLLibrary> lib;
     union {
         __unsafe_unretained id<MTLComputePipelineState> compute;
@@ -581,10 +581,7 @@ void renderer_destroy(ORenderer *renderer){
 }
 
 OShader renderer_shader_create(ORenderer *renderer, OShaderDesc desc) {
-    if ((!desc.data.binary && !desc.data.source) || (!desc.binarySize || !desc.sourceSize)) {
-        LOG_ERROR("no shader data provided. Cannot create shader\n");
-        return (OShader){0};
-    }
+    if (!shader_desc_is_valid(desc)) return (OShader){0};
 
     NSError * err = nil;
     MHandle h = memory_pool_item_acquire(renderer->shaderPool);
@@ -593,12 +590,7 @@ OShader renderer_shader_create(ORenderer *renderer, OShaderDesc desc) {
         LOG_ERROR("failed to allocate shader from shader pool\n");
         return (OShader){0};
     }
-
-    slot->desc = desc;
-
-    if (desc.data.binary && desc.data.source) {
-        LOG_INFO("both binary and source shader data provided. using binary\n");
-    }
+    slot->stage = desc.stage;
 
     id<MTLLibrary> lib = nil;
 
