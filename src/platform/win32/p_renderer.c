@@ -434,8 +434,6 @@ void renderer_image_destroy(ORenderer *renderer, OImage image) {
 }
 
 OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle, OSurfaceDesc desc) {
-    (void)renderer;
-    (void)native_window_handle;
     (void)desc;
 
     // get the first free layer slot
@@ -454,23 +452,29 @@ OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle
     }
 
     uint32_t index = freeID - 1;
+    Swapchain *swapchain = swapchain_create(native_window_handle, (SwapchainDesc){.device = g_renderer.device, .physDevice = g_renderer.physDevice, .instance = g_renderer.instance, .vsync = true});
+    if (!swapchain) {
+        LOG_ERROR("renderer_surface_create: failed to create swapchain\n");
+        return (OSurface){0};
+    }
+
     renderer->layerList.data[index].hwnd = native_window_handle;
-    renderer->layerList.data[index].swapchain = swapchain_create(native_window_handle, (SwapchainDesc){.device = g_renderer.device, .physDevice = g_renderer.physDevice, .instance = g_renderer.instance, .vsync = true});
+    renderer->layerList.data[index].swapchain = swapchain;
     uint32_t currAge = renderer->layerList.data[index].age;
     return (OSurface){.id = freeID, .age = currAge};
 }
 
 void renderer_surface_destroy(ORenderer *renderer, OSurface surface) {
-    (void)renderer;
-    (void)surface;
-    if (!surface.id) {
-        LOG_WARN("renderer_surface_destory: surface handle invalid\n");
+    if (!surface.id || surface.id > MAX_LAYER_COUNT || surface.age != renderer->layerList.data[surface.id - 1].age) {
+        LOG_WARN("attempting to destroy an already destroyed surface\n");
         return;
     }
 
     uint32_t index = surface.id - 1;
-    renderer->layerList.data[index].age++;
     swapchain_destroy(renderer->layerList.data[index].swapchain);
+    renderer->layerList.data[index].swapchain = NULL;
+    renderer->layerList.data[index].hwnd = NULL;
+    renderer->layerList.data[index].age++;
 }
 
 void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) {
