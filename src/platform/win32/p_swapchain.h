@@ -9,7 +9,6 @@
 #include <stdint.h>
 
 typedef struct Swapchain Swapchain;
-typedef struct OWindow OWindow;
 
 typedef enum SwapchainAcquireResult {
     SWAPCHAIN_ACQUIRE_SUCCESS = 0,
