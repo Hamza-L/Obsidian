@@ -1,6 +1,7 @@
 #ifndef P_RENDERER_INTERNAL_H
 #define P_RENDERER_INTERNAL_H
 #include "o_renderer.h"
+#include "o_memory.h"
 
 #include "p_vulkan_limits.h"
 #include "p_swapchain.h"
@@ -15,7 +16,6 @@
 #define MAX_LAYER_COUNT 8
 #define MAX_SHADER_COUNT 256
 
-typedef void* MPool;
 typedef struct OShaderSlot OShaderSlot;
 typedef struct OImageSlot OImageSlot;
 
