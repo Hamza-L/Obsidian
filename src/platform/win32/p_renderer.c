@@ -1,6 +1,5 @@
 #include "o_renderer.h"
 #include "o_log.h"
-#include "o_window.h"
 #include "o_memory.h"
 
 #include "p_vulkan_loader.h"
@@ -31,33 +30,6 @@ static const char *const k_device_extensions[] = {
 };
 
 ORenderer g_renderer;
-
-bool vk_test_surface_present_support(OWindow * window) {
-    VkSurfaceKHR surface = VK_NULL_HANDLE;
-    HWND hwnd = (HWND)window_native_handle(window);
-    if (!hwnd) {
-        LOG_ERROR("vk_test_surface_present_support: cannot retrieve window hwnd");
-        return false;
-    }
-
-    VkWin32SurfaceCreateInfoKHR sci;
-    memset(&sci, 0, sizeof(sci));
-    sci.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
-    sci.hinstance = GetModuleHandleW(NULL);
-    sci.hwnd = hwnd;
-
-    VkResult res = vkCreateWin32SurfaceKHR(g_renderer.instance, &sci, NULL, &surface);
-    if (res != VK_SUCCESS) {
-        LOG_ERROR("Failed to create surface\n");
-        return false;
-    }
-
-    VkBool32 supportsPresent = VK_FALSE;
-    res = vkGetPhysicalDeviceSurfaceSupportKHR(g_renderer.physDevice, g_renderer.queue.graphicsqfi, surface, &supportsPresent);
-    vkDestroySurfaceKHR(g_renderer.instance, surface, NULL);
-
-    return res == VK_SUCCESS && supportsPresent == VK_TRUE;
-}
 
 static bool create_fences(VkDevice device, VkFence *fences, size_t count) {
     VkFenceCreateInfo fci = {0};
@@ -276,29 +248,28 @@ ORenderer *renderer_create(ORendererDesc desc) {
         vkGetPhysicalDeviceQueueFamilyProperties(physDevices[i], &nqfi, qfs);
 
         for (uint32_t j = 0; j < nqfi; j++) {
-            if ((qfs[j].queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0){
+            VkQueueFlags flags = qfs[j].queueFlags;
+            if ((flags & VK_QUEUE_GRAPHICS_BIT) && graphicsqfi == UINT32_MAX) {
                 graphicsqfi = j;
             }
 
-            if ((qfs[j].queueFlags & VK_QUEUE_TRANSFER_BIT) != 0){
-                transferqfi = j;
-            }
-
-            if (transferqfi != UINT32_MAX && graphicsqfi != UINT32_MAX) {
-                physd = physDevices[i];
-                break;
+            // dedicated transfer family: prefer pure DMA (no compute) over async compute
+            if ((flags & VK_QUEUE_TRANSFER_BIT) && !(flags & VK_QUEUE_GRAPHICS_BIT)) {
+                if (!(flags & VK_QUEUE_COMPUTE_BIT) || transferqfi == UINT32_MAX) transferqfi = j;
             }
         }
 
         free(qfs);
 
-        if (physd != VK_NULL_HANDLE) {
+        if (graphicsqfi != UINT32_MAX) {
+            if (transferqfi == UINT32_MAX) transferqfi = graphicsqfi;
+            physd = physDevices[i];
             break;
         }
     }
 
     if (physd == VK_NULL_HANDLE) {
-        LOG_ERROR("renderer_create(): no suitable Vulkan physical device/queue family found (need graphics+present)");
+        LOG_ERROR("renderer_create(): no suitable Vulkan physical device/queue family found (need graphics)");
         renderer_destroy(&g_renderer);
         return NULL;
     } else {
