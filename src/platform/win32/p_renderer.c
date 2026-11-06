@@ -387,14 +387,26 @@ ORenderer *renderer_create(ORendererDesc desc) {
 void renderer_destroy(ORenderer *renderer) {
     if (!renderer) return;
 
+    if (renderer->device && vkDeviceWaitIdle) vkDeviceWaitIdle(renderer->device);
+
     for (uint32_t i = 0; i < MAX_LAYER_COUNT; i++) {
-        renderer->layerList.data[i].hwnd = NULL;
         swapchain_destroy(renderer->layerList.data[i].swapchain);
+        renderer->layerList.data[i].swapchain = NULL;
+        renderer->layerList.data[i].hwnd = NULL;
     }
 
-    if (renderer->device) vkDestroyDevice(renderer->device, NULL);
-    if (renderer->instance) vkDestroyInstance(renderer->instance, NULL);
+    if (renderer->device) {
+        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+            if (renderer->fences[i]) vkDestroyFence(renderer->device, renderer->fences[i], NULL);
+        }
+        if (renderer->cmdPool) vkDestroyCommandPool(renderer->device, renderer->cmdPool, NULL);
+        if (vkDestroyDevice) vkDestroyDevice(renderer->device, NULL);
+    }
+    if (renderer->instance && vkDestroyInstance) vkDestroyInstance(renderer->instance, NULL);
     if (renderer->vulkanLib) FreeLibrary(renderer->vulkanLib);
+
+    if (renderer->shaderPool) memory_pool_destroy(renderer->shaderPool);
+    if (renderer->imagePool) memory_pool_destroy(renderer->imagePool);
 
     memset(renderer, 0, sizeof(*renderer));
 }
