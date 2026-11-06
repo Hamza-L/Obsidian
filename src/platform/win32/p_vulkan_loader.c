@@ -14,6 +14,7 @@ PFN_vkEnumerateInstanceLayerProperties vkEnumerateInstanceLayerProperties;
 PFN_vkEnumeratePhysicalDevices vkEnumeratePhysicalDevices;
 PFN_vkGetPhysicalDeviceProperties vkGetPhysicalDeviceProperties;
 PFN_vkGetPhysicalDeviceProperties2 vkGetPhysicalDeviceProperties2;
+PFN_vkGetPhysicalDeviceFeatures2 vkGetPhysicalDeviceFeatures2;
 PFN_vkEnumerateDeviceExtensionProperties vkEnumerateDeviceExtensionProperties;
 PFN_vkGetPhysicalDeviceQueueFamilyProperties vkGetPhysicalDeviceQueueFamilyProperties;
 
@@ -139,6 +140,7 @@ bool vk_load_instance_fns(VkInstance instance) {
     vkEnumeratePhysicalDevices = (PFN_vkEnumeratePhysicalDevices)vk_get_instance(instance, "vkEnumeratePhysicalDevices");
     vkGetPhysicalDeviceProperties = (PFN_vkGetPhysicalDeviceProperties)vk_get_instance(instance, "vkGetPhysicalDeviceProperties");
     vkGetPhysicalDeviceProperties2 = (PFN_vkGetPhysicalDeviceProperties2)vk_get_instance(instance, "vkGetPhysicalDeviceProperties2");
+    vkGetPhysicalDeviceFeatures2 = (PFN_vkGetPhysicalDeviceFeatures2)vk_get_instance(instance, "vkGetPhysicalDeviceFeatures2");
     vkEnumerateDeviceExtensionProperties = (PFN_vkEnumerateDeviceExtensionProperties)vk_get_instance(instance, "vkEnumerateDeviceExtensionProperties");
     vkGetPhysicalDeviceQueueFamilyProperties = (PFN_vkGetPhysicalDeviceQueueFamilyProperties)vk_get_instance(instance, "vkGetPhysicalDeviceQueueFamilyProperties");
     vkCreateDevice = (PFN_vkCreateDevice)vk_get_instance(instance, "vkCreateDevice");
@@ -152,7 +154,8 @@ bool vk_load_instance_fns(VkInstance instance) {
     vkGetPhysicalDeviceSurfaceFormatsKHR = (PFN_vkGetPhysicalDeviceSurfaceFormatsKHR)vk_get_instance(instance, "vkGetPhysicalDeviceSurfaceFormatsKHR");
     vkGetPhysicalDeviceSurfacePresentModesKHR = (PFN_vkGetPhysicalDeviceSurfacePresentModesKHR)vk_get_instance(instance, "vkGetPhysicalDeviceSurfacePresentModesKHR");
 
-    return vkDestroyInstance && vkEnumeratePhysicalDevices && vkGetPhysicalDeviceQueueFamilyProperties && vkCreateDevice &&
+    return vkDestroyInstance && vkEnumeratePhysicalDevices && vkGetPhysicalDeviceProperties && vkGetPhysicalDeviceFeatures2 &&
+           vkGetPhysicalDeviceQueueFamilyProperties && vkCreateDevice &&
            vkCreateWin32SurfaceKHR && vkDestroySurfaceKHR && vkGetPhysicalDeviceSurfaceSupportKHR &&
            vkGetPhysicalDeviceSurfaceCapabilitiesKHR && vkGetPhysicalDeviceSurfaceFormatsKHR && vkGetPhysicalDeviceSurfacePresentModesKHR &&
            vkGetPhysicalDeviceMemoryProperties;

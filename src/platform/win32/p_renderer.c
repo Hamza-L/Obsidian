@@ -114,6 +114,27 @@ static bool instance_has_extensions(const char *const *names, uint32_t count) {
     return all_found;
 }
 
+static bool device_supports_required_features(VkPhysicalDevice device) {
+    VkPhysicalDeviceProperties props;
+    vkGetPhysicalDeviceProperties(device, &props);
+    if (props.apiVersion < VK_API_VERSION_1_3) return false;
+
+    VkPhysicalDeviceVulkan13Features f13 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+    VkPhysicalDeviceVulkan12Features f12 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, .pNext = &f13};
+    VkPhysicalDeviceFeatures2 f2 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &f12};
+    vkGetPhysicalDeviceFeatures2(device, &f2);
+
+    return f12.descriptorIndexing &&
+           f12.runtimeDescriptorArray &&
+           f12.descriptorBindingPartiallyBound &&
+           f12.shaderSampledImageArrayNonUniformIndexing &&
+           f12.descriptorBindingSampledImageUpdateAfterBind &&
+           f12.descriptorBindingStorageImageUpdateAfterBind &&
+           f12.bufferDeviceAddress &&
+           f13.synchronization2 &&
+           f13.dynamicRendering;
+}
+
 bool create_default_graphics_pipeline(void) {
     return false;
 }
@@ -233,6 +254,7 @@ ORenderer *renderer_create(ORendererDesc desc) {
     VkPhysicalDevice physd = VK_NULL_HANDLE;
     for (uint32_t i = 0; i < npd && i < MAX_PHYS_DEVICES; i++) {
         if (!device_has_extensions(physDevices[i], k_device_extensions, nReqDeviceExts)) continue;
+        if (!device_supports_required_features(physDevices[i])) continue;
         graphicsqfi = UINT32_MAX;
         transferqfi = UINT32_MAX;
         uint32_t nqfi = 0;
@@ -269,7 +291,7 @@ ORenderer *renderer_create(ORendererDesc desc) {
     }
 
     if (physd == VK_NULL_HANDLE) {
-        LOG_ERROR("renderer_create(): no suitable Vulkan physical device/queue family found (need graphics)");
+        LOG_ERROR("renderer_create(): no suitable Vulkan physical device found (need Vulkan 1.3, bindless features and a graphics queue)");
         renderer_destroy(&g_renderer);
         return NULL;
     } else {
@@ -295,9 +317,27 @@ ORenderer *renderer_create(ORendererDesc desc) {
     qci[1].pNext = NULL;
     qci[1].flags = 0;
 
+    VkPhysicalDeviceVulkan13Features enabled13 = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+        .synchronization2 = VK_TRUE,
+        .dynamicRendering = VK_TRUE,
+    };
+    VkPhysicalDeviceVulkan12Features enabled12 = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+        .pNext = &enabled13,
+        .descriptorIndexing = VK_TRUE,
+        .runtimeDescriptorArray = VK_TRUE,
+        .descriptorBindingPartiallyBound = VK_TRUE,
+        .shaderSampledImageArrayNonUniformIndexing = VK_TRUE,
+        .descriptorBindingSampledImageUpdateAfterBind = VK_TRUE,
+        .descriptorBindingStorageImageUpdateAfterBind = VK_TRUE,
+        .bufferDeviceAddress = VK_TRUE,
+    };
+
     VkDeviceCreateInfo dci;
     memset(&dci, 0, sizeof(dci));
     dci.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    dci.pNext = &enabled12;
     dci.queueCreateInfoCount = (graphicsqfi == transferqfi) ? 1 : 2;
     dci.pQueueCreateInfos = qci;
     dci.enabledExtensionCount = nReqDeviceExts;
