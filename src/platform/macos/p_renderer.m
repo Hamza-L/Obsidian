@@ -469,8 +469,8 @@ OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle
 
     [renderer->queue addResidencySet:layer.residencySet];
 
-    renderer->layerList.data[index - 1].view = view;
-    renderer->layerList.data[index - 1].layer = layer;
+    renderer->layerList.data[freeID - 1].view = view;
+    renderer->layerList.data[freeID - 1].layer = layer;
     uint32_t currAge = renderer->layerList.data[freeID - 1].age;
     return (OSurface){freeID, currAge};
 }
@@ -623,10 +623,12 @@ OShader renderer_shader_create(ORenderer *renderer, OShaderDesc desc) {
 }
 
 void renderer_shader_update(ORenderer *renderer, OShader shader, OShaderDesc desc) {
-
-
+    (void)renderer;
+    (void)shader;
+    (void)desc;
 }
 
 void renderer_shader_destroy(ORenderer *renderer, OShader shader) {
-
+    (void)renderer;
+    (void)shader;
 }
