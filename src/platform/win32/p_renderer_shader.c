@@ -5,7 +5,7 @@
 
 #include "glslang_c_shader_types.h"
 #include "glslang_c_interface.h"
-#include "glslang/include/glslang/Public/resource_limits_c.h"
+#include "glslang/Public/resource_limits_c.h"
 
 static bool glslang_ready = false;
 

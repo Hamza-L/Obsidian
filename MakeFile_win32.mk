@@ -80,20 +80,45 @@ EXTRA_OBJECT_DEPS += $(VULKAN_HEADERS_MARKER)
 CFLAGS += -I$(VULKAN_HEADERS_INCLUDE_DIR)
 
 # --- Dependencies: glslang (runtime GLSL -> SPIR-V compilation) -----------
-
+# Built once from upstream source via CMake+MSBuild; the installed .lib is the marker.
+# CRT is /MDd to match the top-level build (the prebuilt release zip is /MD -> LNK4098).
+# glslang.exe (SPIR-V rules below) needs Python 3 at configure time; the libraries don't.
+# -isystem: the C interface uses anonymous unions, which -std=c99 -Wpedantic rejects.
 GLSLANG_VERSION ?= 16.5.0
+GLSLANG_SRC_DIR := external/glslang-src
+GLSLANG_BUILD_DIR := external/glslang-build
 GLSLANG_DIR := external/glslang
-GLSLANG_INCLUDE_DIR := $(GLSLANG_DIR)/include/glslang/Include
-GLSLANG_HEADER_MARKER := $(GLSLANG_INCLUDE_DIR)/glslang_c_interface.h
-GLSLANG_ZIP := external/deps/glslang-$(GLSLANG_VERSION).zip
-GLSLANG_URL := https://github.com/KhronosGroup/glslang/releases/download/$(GLSLANG_VERSION)/glslang-$(GLSLANG_VERSION)-windows-x86_64-release.zip
+GLSLANG_INCLUDE_DIR := $(GLSLANG_DIR)/include
+GLSLANG_LIB := $(GLSLANG_DIR)/lib/glslangd.lib
+GLSLANG_RESOURCE_LIMITS_LIB := $(GLSLANG_DIR)/lib/glslang-default-resource-limitsd.lib
+GLSLANG_TARBALL := external/deps/glslang-$(GLSLANG_VERSION).tar.gz
+GLSLANG_URL := https://github.com/KhronosGroup/glslang/archive/refs/tags/$(GLSLANG_VERSION).tar.gz
 
-EXTRA_OBJECT_DEPS += $(GLSLANG_HEADER_MARKER)
-CFLAGS += -I$(GLSLANG_INCLUDE_DIR)
-LDLIBS += $(GLSLANG_DIR)/lib/glslang.lib
-LDLIBS += $(GLSLANG_DIR)/lib/glslang-default-resource-limits.lib
-LDLIBS += $(GLSLANG_DIR)/lib/SPIRV-Tools-opt.lib
-LDLIBS += $(GLSLANG_DIR)/lib/SPIRV-Tools.lib
+EXTRA_OBJECT_DEPS += $(GLSLANG_LIB)
+CFLAGS += -isystem $(GLSLANG_INCLUDE_DIR)
+CFLAGS += -isystem $(GLSLANG_INCLUDE_DIR)/glslang/Include
+LDLIBS += $(GLSLANG_LIB)
+LDLIBS += $(GLSLANG_RESOURCE_LIMITS_LIB)
+
+$(GLSLANG_LIB):
+	@echo "DEPS glslang $(GLSLANG_VERSION) (building from source)"
+	@$(call mkdir_p,external/deps)
+	@powershell -NoProfile -Command "Invoke-WebRequest -Uri '$(GLSLANG_URL)' -OutFile '$(GLSLANG_TARBALL)'"
+	@tar -xzf $(GLSLANG_TARBALL) -C external/deps
+	@$(call rmdir_rf,$(GLSLANG_SRC_DIR))
+	@powershell -NoProfile -Command "Move-Item -Force 'external/deps/glslang-$(GLSLANG_VERSION)' '$(GLSLANG_SRC_DIR)'"
+	@$(call rmdir_rf,$(GLSLANG_DIR))
+	@cmake -S $(GLSLANG_SRC_DIR) -B $(GLSLANG_BUILD_DIR) -G "Visual Studio 17 2022" -A x64 \
+		-DCMAKE_INSTALL_PREFIX=$(CURDIR)/$(GLSLANG_DIR) \
+		-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDebugDLL \
+		-DBUILD_SHARED_LIBS=OFF \
+		-DBUILD_EXTERNAL=OFF \
+		-DENABLE_OPT=OFF \
+		-DENABLE_HLSL=OFF \
+		-DGLSLANG_TESTS=OFF \
+		-DGLSLANG_ENABLE_INSTALL=ON \
+		-DENABLE_GLSLANG_BINARIES=ON
+	@cmake --build $(GLSLANG_BUILD_DIR) --config Debug --target install --parallel
 
 # --- SPIR-V shader compilation (local glslang) -------------------
 GLSLANG_BIN := $(GLSLANG_DIR)/bin/glslang.exe
@@ -104,12 +129,12 @@ SPIRV_FRAG := $(SHADERS_DIR)/basic.frag.spv
 CFLAGS += -DNE_SPIRV_VERT_PATH="\"$(SHADERS_DIR)/basic.vert.spv\""
 CFLAGS += -DNE_SPIRV_FRAG_PATH="\"$(SHADERS_DIR)/basic.frag.spv\""
 
-$(SPIRV_VERT): shaders/glsl/basic.vert $(GLSLANG_HEADER_MARKER)
+$(SPIRV_VERT): shaders/glsl/basic.vert $(GLSLANG_LIB)
 	@echo GLSLC $<
 	@$(call mkdir_p,$(SHADERS_DIR))
 	@"$(GLSLANG_BIN)" -V -S vert -o "$@" "$<"
 
-$(SPIRV_FRAG): shaders/glsl/basic.frag $(GLSLANG_HEADER_MARKER)
+$(SPIRV_FRAG): shaders/glsl/basic.frag $(GLSLANG_LIB)
 	@echo GLSLC $<
 	@$(call mkdir_p,$(SHADERS_DIR))
 	@"$(GLSLANG_BIN)" -V -S frag -o "$@" "$<"
@@ -153,13 +178,6 @@ $(FREETYPE_LIB):
 	@cmake --build $(FREETYPE_BUILD_DIR) --config Debug --target install --parallel
 
 # --- Dependency download rules --------------------------------------------
-$(GLSLANG_HEADER_MARKER):
-	@echo "DEPS glslang (downloading...)"
-	@$(call mkdir_p,external/deps)
-	@$(call mkdir_p,$(GLSLANG_DIR))
-	@powershell -NoProfile -Command "Invoke-WebRequest -Uri '$(GLSLANG_URL)' -OutFile '$(GLSLANG_ZIP)'"
-	@powershell -NoProfile -Command "Expand-Archive -Force '$(GLSLANG_ZIP)' '$(GLSLANG_DIR)'"
-
 $(VULKAN_HEADERS_MARKER):
 	@echo "DEPS Vulkan-Headers v$(VULKAN_HEADERS_VERSION)"
 	@$(call mkdir_p,$(BUILD_DIR)/deps)
