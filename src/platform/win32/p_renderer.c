@@ -98,7 +98,7 @@ static bool create_command_pool(VkDevice device, uint32_t queueFamilyIndex, VkCo
     cpci.queueFamilyIndex = queueFamilyIndex;
 
     VkResult vr = vkCreateCommandPool(device, &cpci, NULL, cmdPool);
-    if (vr != VK_SUCCESS || cmdPool == VK_NULL_HANDLE) {
+    if (vr != VK_SUCCESS || *cmdPool == VK_NULL_HANDLE) {
         LOG_ERROR("vkCreateCommandPool failed (vr=%d)", (int)vr);
         return false;
     }
