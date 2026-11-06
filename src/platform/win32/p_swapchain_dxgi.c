@@ -131,8 +131,6 @@ struct Swapchain {
     VkDeviceMemory vkMemories[SWAPCHAIN_IMAGE_COUNT];
     ID3D11DeviceContext *d3dContext;
 
-    bool needs_recreate;
-
     uint32_t acquiredImageIndex;
 
     VkPhysicalDeviceMemoryProperties memProps;
@@ -578,7 +576,6 @@ static bool dxgi_init(void *native_window_handle, Swapchain *sc) {
         return false;
     }
 
-    sc->needs_recreate = false;
     return true;
 }
 
