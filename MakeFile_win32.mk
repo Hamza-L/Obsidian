@@ -51,8 +51,6 @@ CFLAGS += -DUNICODE -D_UNICODE
 CFLAGS += -fms-runtime-lib=dll_dbg
 CFLAGS += -Isrc/renderer/vulkan
 
-SHADERS_DIR := $(BUILD_DIR)/shaders
-
 # --- Link flags -----------------------------------------------------------
 LDFLAGS += -g
 
@@ -82,7 +80,6 @@ CFLAGS += -I$(VULKAN_HEADERS_INCLUDE_DIR)
 # --- Dependencies: glslang (runtime GLSL -> SPIR-V compilation) -----------
 # Built once from upstream source via CMake+MSBuild; the installed .lib is the marker.
 # CRT is /MDd to match the top-level build (the prebuilt release zip is /MD -> LNK4098).
-# glslang.exe (SPIR-V rules below) needs Python 3 at configure time; the libraries don't.
 # -isystem: the C interface uses anonymous unions, which -std=c99 -Wpedantic rejects.
 GLSLANG_VERSION ?= 16.5.0
 GLSLANG_SRC_DIR := external/glslang-src
@@ -117,30 +114,8 @@ $(GLSLANG_LIB):
 		-DENABLE_HLSL=OFF \
 		-DGLSLANG_TESTS=OFF \
 		-DGLSLANG_ENABLE_INSTALL=ON \
-		-DENABLE_GLSLANG_BINARIES=ON
+		-DENABLE_GLSLANG_BINARIES=OFF
 	@cmake --build $(GLSLANG_BUILD_DIR) --config Debug --target install --parallel
-
-# --- SPIR-V shader compilation (local glslang) -------------------
-GLSLANG_BIN := $(GLSLANG_DIR)/bin/glslang.exe
-
-SPIRV_VERT := $(SHADERS_DIR)/basic.vert.spv
-SPIRV_FRAG := $(SHADERS_DIR)/basic.frag.spv
-
-CFLAGS += -DNE_SPIRV_VERT_PATH="\"$(SHADERS_DIR)/basic.vert.spv\""
-CFLAGS += -DNE_SPIRV_FRAG_PATH="\"$(SHADERS_DIR)/basic.frag.spv\""
-
-$(SPIRV_VERT): shaders/glsl/basic.vert $(GLSLANG_LIB)
-	@echo GLSLC $<
-	@$(call mkdir_p,$(SHADERS_DIR))
-	@"$(GLSLANG_BIN)" -V -S vert -o "$@" "$<"
-
-$(SPIRV_FRAG): shaders/glsl/basic.frag $(GLSLANG_LIB)
-	@echo GLSLC $<
-	@$(call mkdir_p,$(SHADERS_DIR))
-	@"$(GLSLANG_BIN)" -V -S frag -o "$@" "$<"
-
-# NOTE(Hamza): UNCOMMENT THIS when shaders start getting compiled
-# EXTRA_OBJECT_DEPS += $(SPIRV_VERT) $(SPIRV_FRAG)
 
 # --- Dependencies: FreeType (built from upstream source) ------------------
 # Built once via CMake+MSBuild; the produced .lib is the marker, so a second
