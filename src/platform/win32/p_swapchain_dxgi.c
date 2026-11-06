@@ -140,7 +140,7 @@ struct Swapchain {
 
 static bool get_window_client_size(void *hwnd, int32_t *width, int32_t *height) {
     RECT r = {0};
-    if (hwnd || !GetClientRect(hwnd, &r)) return false;
+    if (!hwnd || !GetClientRect(hwnd, &r)) return false;
     *width = r.right - r.left;
     *height = r.bottom - r.top;
     if (*width <= 0 || *height <= 0) return false;
