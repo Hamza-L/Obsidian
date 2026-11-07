@@ -70,7 +70,7 @@ static bool create_command_pool(VkDevice device, uint32_t queueFamilyIndex, VkCo
     return true;
 }
 
-static bool device_has_extensions(VkPhysicalDevice device, const char *const *names, uint32_t count) {
+static bool device_has_extensions(VkPhysicalDevice device, const char *deviceName, const char *const *names, uint32_t count) {
     if (count == 0) return true;
     uint32_t available = 0;
     if (vkEnumerateDeviceExtensionProperties(device, NULL, &available, NULL) != VK_SUCCESS) return false;
@@ -79,10 +79,11 @@ static bool device_has_extensions(VkPhysicalDevice device, const char *const *na
     vkEnumerateDeviceExtensionProperties(device, NULL, &available, props);
 
     bool all_found = true;
-    for (uint32_t i = 0; i < count && all_found; i++) {
+    for (uint32_t i = 0; i < count; i++) {
         bool found = false;
         for (uint32_t j = 0; j < available && !found; j++) found = strcmp(props[j].extensionName, names[i]) == 0;
-        all_found = found;
+        if (!found) LOG_WARN("%s: missing device extension %s", deviceName, names[i]);
+        all_found = all_found && found;
     }
     free(props);
     return all_found;
@@ -107,7 +108,7 @@ static bool instance_has_extensions(const char *const *names, uint32_t count) {
     return all_found;
 }
 
-static bool device_supports_d3d12_fence_export(VkPhysicalDevice device) {
+static bool device_supports_d3d12_fence_export(VkPhysicalDevice device, const char *deviceName) {
     VkSemaphoreTypeCreateInfo timeline = {
         .sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
         .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
@@ -120,30 +121,49 @@ static bool device_supports_d3d12_fence_export(VkPhysicalDevice device) {
     VkExternalSemaphoreProperties props = {.sType = VK_STRUCTURE_TYPE_EXTERNAL_SEMAPHORE_PROPERTIES};
     vkGetPhysicalDeviceExternalSemaphoreProperties(device, &info, &props);
 
-    return (props.externalSemaphoreFeatures & VK_EXTERNAL_SEMAPHORE_FEATURE_EXPORTABLE_BIT) &&
-           (props.compatibleHandleTypes & VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_D3D12_FENCE_BIT);
+    bool ok = (props.externalSemaphoreFeatures & VK_EXTERNAL_SEMAPHORE_FEATURE_EXPORTABLE_BIT) &&
+              (props.compatibleHandleTypes & VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_D3D12_FENCE_BIT);
+    if (!ok) {
+        LOG_WARN("%s: timeline semaphores cannot be exported as D3D12 fences (features=0x%x compatible=0x%x exportFrom=0x%x)",
+                 deviceName, (unsigned)props.externalSemaphoreFeatures, (unsigned)props.compatibleHandleTypes,
+                 (unsigned)props.exportFromImportedHandleTypes);
+    }
+    return ok;
 }
 
-static bool device_supports_required_features(VkPhysicalDevice device) {
-    VkPhysicalDeviceProperties props;
-    vkGetPhysicalDeviceProperties(device, &props);
-    if (props.apiVersion < VK_API_VERSION_1_3) return false;
+static bool device_supports_required_features(VkPhysicalDevice device, const VkPhysicalDeviceProperties *props) {
+    if (props->apiVersion < VK_API_VERSION_1_3) {
+        LOG_WARN("%s: Vulkan %u.%u.%u, need 1.3", props->deviceName, VK_API_VERSION_MAJOR(props->apiVersion),
+                 VK_API_VERSION_MINOR(props->apiVersion), VK_API_VERSION_PATCH(props->apiVersion));
+        return false;
+    }
 
     VkPhysicalDeviceVulkan13Features f13 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
     VkPhysicalDeviceVulkan12Features f12 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, .pNext = &f13};
     VkPhysicalDeviceFeatures2 f2 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &f12};
     vkGetPhysicalDeviceFeatures2(device, &f2);
 
-    return f12.timelineSemaphore &&
-           f12.descriptorIndexing &&
-           f12.runtimeDescriptorArray &&
-           f12.descriptorBindingPartiallyBound &&
-           f12.shaderSampledImageArrayNonUniformIndexing &&
-           f12.descriptorBindingSampledImageUpdateAfterBind &&
-           f12.descriptorBindingStorageImageUpdateAfterBind &&
-           f12.bufferDeviceAddress &&
-           f13.synchronization2 &&
-           f13.dynamicRendering;
+    const struct { VkBool32 supported; const char *name; } required[] = {
+        {f12.timelineSemaphore, "timelineSemaphore"},
+        {f12.descriptorIndexing, "descriptorIndexing"},
+        {f12.runtimeDescriptorArray, "runtimeDescriptorArray"},
+        {f12.descriptorBindingPartiallyBound, "descriptorBindingPartiallyBound"},
+        {f12.shaderSampledImageArrayNonUniformIndexing, "shaderSampledImageArrayNonUniformIndexing"},
+        {f12.descriptorBindingSampledImageUpdateAfterBind, "descriptorBindingSampledImageUpdateAfterBind"},
+        {f12.descriptorBindingStorageImageUpdateAfterBind, "descriptorBindingStorageImageUpdateAfterBind"},
+        {f12.bufferDeviceAddress, "bufferDeviceAddress"},
+        {f13.synchronization2, "synchronization2"},
+        {f13.dynamicRendering, "dynamicRendering"},
+    };
+
+    bool ok = true;
+    for (uint32_t i = 0; i < COUNT_OF(required); i++) {
+        if (!required[i].supported) {
+            LOG_WARN("%s: missing feature %s", props->deviceName, required[i].name);
+            ok = false;
+        }
+    }
+    return ok;
 }
 
 bool create_default_graphics_pipeline(void) {
@@ -264,9 +284,15 @@ ORenderer *renderer_create(ORendererDesc desc) {
     uint32_t transferqfi = UINT32_MAX;
     VkPhysicalDevice physd = VK_NULL_HANDLE;
     for (uint32_t i = 0; i < npd && i < MAX_PHYS_DEVICES; i++) {
-        if (!device_has_extensions(physDevices[i], k_device_extensions, nReqDeviceExts)) continue;
-        if (!device_supports_required_features(physDevices[i])) continue;
-        if (!device_supports_d3d12_fence_export(physDevices[i])) continue;
+        VkPhysicalDeviceProperties props;
+        vkGetPhysicalDeviceProperties(physDevices[i], &props);
+        LOG_INFO("checking GPU: %s (Vulkan %u.%u.%u)", props.deviceName, VK_API_VERSION_MAJOR(props.apiVersion),
+                 VK_API_VERSION_MINOR(props.apiVersion), VK_API_VERSION_PATCH(props.apiVersion));
+
+        bool suitable = device_has_extensions(physDevices[i], props.deviceName, k_device_extensions, nReqDeviceExts);
+        suitable = device_supports_required_features(physDevices[i], &props) && suitable;
+        suitable = device_supports_d3d12_fence_export(physDevices[i], props.deviceName) && suitable;
+        if (!suitable) continue;
         graphicsqfi = UINT32_MAX;
         transferqfi = UINT32_MAX;
         uint32_t nqfi = 0;
@@ -300,6 +326,7 @@ ORenderer *renderer_create(ORendererDesc desc) {
             physd = physDevices[i];
             break;
         }
+        LOG_WARN("%s: no graphics queue family", props.deviceName);
     }
 
     if (physd == VK_NULL_HANDLE) {
