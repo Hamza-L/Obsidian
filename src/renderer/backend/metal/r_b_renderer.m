@@ -1,5 +1,5 @@
 #include "o_log.h"
-#include "o_memory_deferred.h"
+#include "o_memory.h"
 
 #include "renderer/backend/metal/r_b_renderer_internal.h"
 
