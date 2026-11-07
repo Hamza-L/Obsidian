@@ -24,7 +24,10 @@ typedef struct OInputEvent {
     } data;
 } OInputEvent;
 
+// defined in the respective platform (macos/win32)
 void input_platform_init(void);
+
+// used the respective platform to push events to our input backend
 void input_push(const OInputEvent *event);
 void input_push_text(uint32_t codepoint);
 uint32_t utf16_decode_pair(uint16_t high, uint16_t low);

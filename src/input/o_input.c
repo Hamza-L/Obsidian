@@ -39,31 +39,6 @@ static void init(void) {
     input_platform_init();
 }
 
-// input push events are used by the platform layers (macos/win32) to submit events to our input-layer queue.
-void input_push(const OInputEvent *event) {
-    const uint32_t next = (g_input.tail + 1) % QUEUE_CAPACITY;
-    if (next == g_input.head) {
-        if (!g_input.overflowed) LOG_WARN("input queue full, dropping events until next poll");
-        g_input.overflowed = true;
-        return;
-    }
-    g_input.queue[g_input.tail] = *event;
-    g_input.tail = next;
-}
-
-void input_push_text(uint32_t codepoint) {
-    const bool is_control = codepoint < UNICODE_FIRST_PRINTABLE || codepoint == UNICODE_DELETE;
-    const bool is_private_use = codepoint >= UNICODE_PRIVATE_USE_FIRST && codepoint <= UNICODE_PRIVATE_USE_LAST;
-    if (is_control || is_private_use) return;
-    input_push(&(OInputEvent){.kind = O_INPUT_TEXT, .data.codepoint = codepoint});
-}
-
-uint32_t utf16_decode_pair(uint16_t high, uint16_t low) {
-    const uint32_t high_bits = (uint32_t)(high - UTF16_HIGH_SURROGATE_FIRST) << UTF16_SURROGATE_PAYLOAD_BITS;
-    const uint32_t low_bits = (uint32_t)(low - UTF16_LOW_SURROGATE_FIRST);
-    return UTF16_SUPPLEMENTARY_PLANE_FIRST + high_bits + low_bits;
-}
-
 static void trace(const OInputEvent *e) {
     if (!INPUT_TRACE) return;
     switch (e->kind) {
@@ -106,6 +81,31 @@ static void dispatch(const OInputEvent *e) {
         case O_INPUT_MOUSE_SCROLL: if (cb->on_mouse_scroll) cb->on_mouse_scroll(s, e->data.scroll, s->user_data); break;
         }
     }
+}
+
+// input push events are used by the platform layers (macos/win32) to submit events to our input-layer queue.
+void input_push(const OInputEvent *event) {
+    const uint32_t next = (g_input.tail + 1) % QUEUE_CAPACITY;
+    if (next == g_input.head) {
+        if (!g_input.overflowed) LOG_WARN("input queue full, dropping events until next poll");
+        g_input.overflowed = true;
+        return;
+    }
+    g_input.queue[g_input.tail] = *event;
+    g_input.tail = next;
+}
+
+void input_push_text(uint32_t codepoint) {
+    const bool is_control = codepoint < UNICODE_FIRST_PRINTABLE || codepoint == UNICODE_DELETE;
+    const bool is_private_use = codepoint >= UNICODE_PRIVATE_USE_FIRST && codepoint <= UNICODE_PRIVATE_USE_LAST;
+    if (is_control || is_private_use) return;
+    input_push(&(OInputEvent){.kind = O_INPUT_TEXT, .data.codepoint = codepoint});
+}
+
+uint32_t utf16_decode_pair(uint16_t high, uint16_t low) {
+    const uint32_t high_bits = (uint32_t)(high - UTF16_HIGH_SURROGATE_FIRST) << UTF16_SURROGATE_PAYLOAD_BITS;
+    const uint32_t low_bits = (uint32_t)(low - UTF16_LOW_SURROGATE_FIRST);
+    return UTF16_SUPPLEMENTARY_PLANE_FIRST + high_bits + low_bits;
 }
 
 bool input_poll_events(void) {

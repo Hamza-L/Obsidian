@@ -15,28 +15,6 @@ static struct {
 
 static const char *const k_level_names[] = {"DEBUG", "INFO ", "WARN ", "ERROR"};
 
-void log_set_level(OLogLevel min_level) {
-    g_log.min_level = min_level;
-}
-
-void log_set_sinks(OLogSinks sinks) {
-    g_log.sinks = sinks;
-}
-
-bool log_open_file(const char *path) {
-    log_close_file();
-    g_log.file = path ? fopen(path, "wb") : NULL;
-    if (!g_log.file) return false;
-    g_log.sinks |= O_LOG_SINK_FILE;
-    return true;
-}
-
-void log_close_file(void) {
-    if (g_log.file) fclose(g_log.file);
-    g_log.file = NULL;
-    g_log.sinks &= ~(OLogSinks)O_LOG_SINK_FILE;
-}
-
 static const char *basename_of(const char *path) {
     const char *base = path;
     for (const char *p = path; *p; p++) {
@@ -57,6 +35,28 @@ static void write_line(FILE *sink, const char *line, size_t len, bool flush) {
     if (!sink) return;
     fwrite(line, 1, len, sink);
     if (flush) fflush(sink);
+}
+
+void log_set_level(OLogLevel min_level) {
+    g_log.min_level = min_level;
+}
+
+void log_set_sinks(OLogSinks sinks) {
+    g_log.sinks = sinks;
+}
+
+bool log_open_file(const char *path) {
+    log_close_file();
+    g_log.file = path ? fopen(path, "wb") : NULL;
+    if (!g_log.file) return false;
+    g_log.sinks |= O_LOG_SINK_FILE;
+    return true;
+}
+
+void log_close_file(void) {
+    if (g_log.file) fclose(g_log.file);
+    g_log.file = NULL;
+    g_log.sinks &= ~(OLogSinks)O_LOG_SINK_FILE;
 }
 
 void log_write(OLogLevel level, const char *file, int line, const char *fmt, ...) {
