@@ -27,6 +27,8 @@ struct ORenderer {
     VkCommandPool cmdPool;
     VkCommandBuffer cmdBuffer[MAX_FRAMES_IN_FLIGHT];
     VkFence fences[MAX_FRAMES_IN_FLIGHT];
+    uint64_t frameIndex;
+    uint32_t presentMask;
 
     struct {
         VkQueue graphics;

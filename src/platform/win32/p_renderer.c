@@ -449,12 +449,108 @@ void renderer_wait_idle(ORenderer *renderer) {
 }
 
 bool renderer_begin_frame(ORenderer *renderer) {
-    (void)renderer;
-    return false;
+    uint32_t slot = (uint32_t)(renderer->frameIndex % MAX_FRAMES_IN_FLIGHT);
+
+    for (uint32_t i = 0; i < MAX_LAYER_COUNT; i++) {
+        swapchain_wait_for_frame(renderer->layerList.data[i].swapchain);
+    }
+
+    VkResult vr = vkWaitForFences(renderer->device, 1, &renderer->fences[slot], VK_TRUE, 1000000000ull);
+    if (vr != VK_SUCCESS) {
+        LOG_WARN("GPU did not release frame slot %u within 1000ms (vr=%d)", slot, (int)vr);
+        return false;
+    }
+
+    // Reset the fence last: once it is reset, end_frame's submit is the only thing that signals it again.
+    vr = vkResetCommandBuffer(renderer->cmdBuffer[slot], 0);
+    if (vr != VK_SUCCESS) {
+        LOG_ERROR("vkResetCommandBuffer failed (vr=%d)", (int)vr);
+        return false;
+    }
+
+    VkCommandBufferBeginInfo begin = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+    };
+    vr = vkBeginCommandBuffer(renderer->cmdBuffer[slot], &begin);
+    if (vr != VK_SUCCESS) {
+        LOG_ERROR("vkBeginCommandBuffer failed (vr=%d)", (int)vr);
+        return false;
+    }
+
+    vr = vkResetFences(renderer->device, 1, &renderer->fences[slot]);
+    if (vr != VK_SUCCESS) {
+        LOG_ERROR("vkResetFences failed (vr=%d)", (int)vr);
+        return false;
+    }
+
+    renderer->presentMask = 0;
+    return true;
 }
 
 void renderer_end_frame_and_present(ORenderer *renderer) {
-    (void)renderer;
+    uint32_t slot = (uint32_t)(renderer->frameIndex % MAX_FRAMES_IN_FLIGHT);
+
+    VkSemaphore waitSemaphores[MAX_LAYER_COUNT];
+    uint64_t waitValues[MAX_LAYER_COUNT];
+    VkPipelineStageFlags waitStages[MAX_LAYER_COUNT];
+    VkSemaphore signalSemaphores[MAX_LAYER_COUNT];
+    uint64_t signalValues[MAX_LAYER_COUNT];
+    uint32_t count = 0;
+
+    for (uint32_t i = 0; i < MAX_LAYER_COUNT; i++) {
+        Swapchain *swapchain = renderer->layerList.data[i].swapchain;
+        if (!swapchain || swapchain_is_lost(swapchain) || !(renderer->presentMask & (1u << i))) continue;
+
+        SwapchainFrameSync sync = swapchain_frame_sync(swapchain);
+        waitSemaphores[count] = sync.waitSemaphore;
+        waitValues[count] = sync.waitValue;
+        waitStages[count] = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        signalSemaphores[count] = sync.signalSemaphore;
+        signalValues[count] = sync.signalValue;
+        count++;
+    }
+
+    VkResult vr = vkEndCommandBuffer(renderer->cmdBuffer[slot]);
+    if (vr == VK_SUCCESS) {
+        VkTimelineSemaphoreSubmitInfo timeline = {
+            .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
+            .waitSemaphoreValueCount = count,
+            .pWaitSemaphoreValues = waitValues,
+            .signalSemaphoreValueCount = count,
+            .pSignalSemaphoreValues = signalValues,
+        };
+        VkSubmitInfo submit = {
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .pNext = &timeline,
+            .waitSemaphoreCount = count,
+            .pWaitSemaphores = waitSemaphores,
+            .pWaitDstStageMask = waitStages,
+            .commandBufferCount = 1,
+            .pCommandBuffers = &renderer->cmdBuffer[slot],
+            .signalSemaphoreCount = count,
+            .pSignalSemaphores = signalSemaphores,
+        };
+        vr = vkQueueSubmit(renderer->queue.graphics, 1, &submit, renderer->fences[slot]);
+    }
+
+    if (vr != VK_SUCCESS) {
+        LOG_ERROR("frame %llu was not submitted (vr=%d)", (unsigned long long)renderer->frameIndex, (int)vr);
+        // Signal the reset fence anyway so the slot does not stall forever. Nothing is presented:
+        // D3D11 would wait on a renderFence value that this frame never signals.
+        if (vkQueueSubmit(renderer->queue.graphics, 0, NULL, renderer->fences[slot]) != VK_SUCCESS) {
+            LOG_ERROR("failed to signal frame slot %u, the device is likely lost", slot);
+        }
+    } else {
+        for (uint32_t i = 0; i < MAX_LAYER_COUNT; i++) {
+            Swapchain *swapchain = renderer->layerList.data[i].swapchain;
+            if (!swapchain || swapchain_is_lost(swapchain) || !(renderer->presentMask & (1u << i))) continue;
+            swapchain_present(swapchain);
+        }
+    }
+
+    renderer->presentMask = 0;
+    renderer->frameIndex++;
 }
 
 void renderer_begin_render(ORenderer *renderer, ORenderTargets targets) {
@@ -518,10 +614,16 @@ void renderer_surface_destroy(ORenderer *renderer, OSurface surface) {
     renderer->layerList.data[index].swapchain = NULL;
     renderer->layerList.data[index].hwnd = NULL;
     renderer->layerList.data[index].age++;
+    renderer->presentMask &= ~(1u << index);
 }
 
 void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) {
-    (void)renderer;
-    (void)surface;
     (void)image;
+    if (!surface.id || surface.id > MAX_LAYER_COUNT || surface.age != renderer->layerList.data[surface.id - 1].age ||
+        !renderer->layerList.data[surface.id - 1].swapchain) {
+        LOG_WARN("attempting to present an already destroyed surface\n");
+        return;
+    }
+
+    renderer->presentMask |= 1u << (surface.id - 1);
 }
