@@ -6,17 +6,19 @@
  * are shared with Vulkan via VK_KHR_external_memory_win32 so the renderer
  * draws into them with its existing pipeline.
  *
- * Sync model (CPU fence wait):
- *   The renderer submits to Vulkan with a fence. Before calling Present1()
- *   we wait on that fence to guarantee the GPU has finished rendering. This
- *   adds ~0.1ms of CPU latency but is simple and correct.
+ * Sync model (GPU-only, two shared timeline fences):
+ *   renderSemaphore/renderFence: Vulkan signals N+1 once presented frame N is drawn.
+ *   copySemaphore/copyFence:     D3D11 signals N+1 once presented frame N is copied out.
+ *   Each pair is one kernel object: a Vulkan timeline semaphore exported as a D3D12
+ *   fence handle and opened in D3D11 as an ID3D11Fence. Frame N uses shared[N % COUNT],
+ *   so Vulkan waits copyFence >= N - COUNT + 1 before overwriting it. N is presentCount.
  */
 #include "p_swapchain.h"
 
 #define WIN32_LEAN_AND_MEAN
 #define COBJMACROS
 #include <windows.h>
-#include <d3d11.h>
+#include <d3d11_4.h>
 #include <dxgi1_4.h>
 #include <initguid.h>
 
@@ -37,10 +39,12 @@
 /* DXGI GUIDs we reference (defined here to avoid linking dxguid.lib) */
 DEFINE_GUID(IID_IDXGIDevice_NE,      0x54ec77fa, 0x1377, 0x44e6, 0x8c, 0x32, 0x88, 0xfd, 0x5f, 0x44, 0xc8, 0x4c);
 DEFINE_GUID(IID_IDXGIFactory2_NE,    0x50c83a1c, 0xe072, 0x4c48, 0x87, 0xb0, 0x36, 0x30, 0xfa, 0x36, 0xa6, 0xd0);
-DEFINE_GUID(IID_IDXGISwapChain3_NE,  0x94d99bdb, 0xf1f8, 0x4ab0, 0xb2, 0x36, 0x7d, 0xa0, 0x17, 0x0e, 0xda, 0xb1);
+DEFINE_GUID(IID_IDXGISwapChain2_NE,  0xa8be2ac4, 0x199f, 0x4946, 0xb3, 0x31, 0x79, 0x59, 0x9f, 0xb9, 0x8d, 0xe7);
 DEFINE_GUID(IID_IDXGIResource1_NE,   0x30961379, 0x4609, 0x4a41, 0x99, 0x8e, 0x54, 0xfe, 0x56, 0x7e, 0xe0, 0xc1);
 DEFINE_GUID(IID_ID3D11Texture2D_NE,  0x6f15aaf2, 0xd208, 0x4e89, 0x9a, 0xb4, 0x48, 0x95, 0x35, 0xd3, 0x4f, 0x9c);
-DEFINE_GUID(IID_IDXGIKeyedMutex_NE,  0x9d8e1289, 0xd7b3, 0x465f, 0x81, 0x26, 0x25, 0x0e, 0x34, 0x9a, 0xf8, 0x5d);
+DEFINE_GUID(IID_ID3D11Device5_NE,        0x8ffde202, 0xa0e7, 0x45df, 0x9e, 0x01, 0xe8, 0x37, 0x80, 0x1b, 0x5e, 0xa0);
+DEFINE_GUID(IID_ID3D11DeviceContext4_NE, 0x917600da, 0xf58c, 0x4c33, 0x98, 0xd8, 0x3e, 0x15, 0xb3, 0x90, 0xfa, 0x24);
+DEFINE_GUID(IID_ID3D11Fence_NE,          0xaffde9d1, 0x1df7, 0x4bb7, 0x8a, 0x34, 0x0f, 0x46, 0x25, 0x1d, 0xab, 0x80);
 
 /* DirectComposition GUIDs */
 DEFINE_GUID(IID_IDCompositionDevice_NE, 0xC37EA93A, 0xE7AA, 0x450D, 0xB1, 0x6F, 0x97, 0x46, 0xCB, 0x04, 0x07, 0xF3);
@@ -131,7 +135,18 @@ struct Swapchain {
     VkDeviceMemory vkMemories[SWAPCHAIN_IMAGE_COUNT];
     ID3D11DeviceContext *d3dContext;
 
-    uint32_t acquiredImageIndex;
+    /* Shared timeline fences (D3D11.4) */
+    ID3D11Device5 *d3dDevice5;
+    ID3D11DeviceContext4 *d3dContext4;
+    VkSemaphore renderSemaphore;
+    VkSemaphore copySemaphore;
+    ID3D11Fence *renderFence;
+    ID3D11Fence *copyFence;
+    uint64_t presentCount;
+
+    /* Frame pacing */
+    HANDLE frameLatencyWaitable;
+    bool frameWaited;
 
     VkPhysicalDeviceMemoryProperties memProps;
 };
@@ -214,7 +229,7 @@ static bool create_dxgi_buffers_and_import_to_vulkan(Swapchain *sc) {
         tex_desc.SampleDesc.Count = 1;
         tex_desc.Usage = D3D11_USAGE_DEFAULT;
         tex_desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-        tex_desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
+        tex_desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED;
 
         hr = ID3D11Device_CreateTexture2D(sc->d3dDevice, &tex_desc, NULL, &sc->sharedTextures[i]);
         if (FAILED(hr) || !sc->sharedTextures[i]) {
@@ -365,6 +380,87 @@ static bool create_dxgi_buffers_and_import_to_vulkan(Swapchain *sc) {
     return true;
 }
 
+static bool create_shared_timeline(Swapchain *sc, VkSemaphore *semaphore, ID3D11Fence **fence) {
+    VkSemaphoreTypeCreateInfo type_ci = {
+        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
+        .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
+        .initialValue = 0,
+    };
+    VkExportSemaphoreCreateInfo export_ci = {
+        .sType = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO,
+        .pNext = &type_ci,
+        .handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_D3D12_FENCE_BIT,
+    };
+    VkSemaphoreCreateInfo ci = {
+        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+        .pNext = &export_ci,
+    };
+
+    VkResult vr = vkCreateSemaphore(sc->device, &ci, NULL, semaphore);
+    if (vr != VK_SUCCESS) {
+        LOG_ERROR("vkCreateSemaphore (shared timeline) failed (vr=%d)", (int)vr);
+        return false;
+    }
+
+    VkSemaphoreGetWin32HandleInfoKHR handle_info = {
+        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_GET_WIN32_HANDLE_INFO_KHR,
+        .semaphore = *semaphore,
+        .handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_D3D12_FENCE_BIT,
+    };
+    HANDLE handle = NULL;
+    vr = vkGetSemaphoreWin32HandleKHR(sc->device, &handle_info, &handle);
+    if (vr != VK_SUCCESS || !handle) {
+        LOG_ERROR("vkGetSemaphoreWin32HandleKHR failed (vr=%d)", (int)vr);
+        return false;
+    }
+
+    HRESULT hr = ID3D11Device5_OpenSharedFence(sc->d3dDevice5, handle, &IID_ID3D11Fence_NE, (void **)fence);
+    CloseHandle(handle);
+    if (FAILED(hr) || !*fence) {
+        LOG_ERROR("ID3D11Device5::OpenSharedFence failed (hr=0x%08lx)", hr);
+        return false;
+    }
+    return true;
+}
+
+static bool create_shared_fences(Swapchain *sc) {
+    HRESULT hr = ID3D11Device_QueryInterface(sc->d3dDevice, &IID_ID3D11Device5_NE, (void **)&sc->d3dDevice5);
+    if (FAILED(hr) || !sc->d3dDevice5) {
+        LOG_ERROR("ID3D11Device5 unavailable, D3D11.4 is required (hr=0x%08lx)", hr);
+        return false;
+    }
+
+    hr = ID3D11DeviceContext_QueryInterface(sc->d3dContext, &IID_ID3D11DeviceContext4_NE, (void **)&sc->d3dContext4);
+    if (FAILED(hr) || !sc->d3dContext4) {
+        LOG_ERROR("ID3D11DeviceContext4 unavailable, D3D11.4 is required (hr=0x%08lx)", hr);
+        return false;
+    }
+
+    return create_shared_timeline(sc, &sc->renderSemaphore, &sc->renderFence) &&
+           create_shared_timeline(sc, &sc->copySemaphore, &sc->copyFence);
+}
+
+static void wait_for_copies(Swapchain *sc) {
+    if (!sc->d3dContext || !sc->copyFence) return;
+
+    ID3D11DeviceContext_Flush(sc->d3dContext);
+    if (sc->presentCount == 0) return;
+
+    HANDLE done = CreateEventW(NULL, FALSE, FALSE, NULL);
+    if (!done) {
+        LOG_ERROR("CreateEventW failed (%lu)", GetLastError());
+        return;
+    }
+
+    HRESULT hr = ID3D11Fence_SetEventOnCompletion(sc->copyFence, sc->presentCount, done);
+    if (FAILED(hr)) {
+        LOG_ERROR("ID3D11Fence::SetEventOnCompletion failed (hr=0x%08lx)", hr);
+    } else if (WaitForSingleObject(done, 5000) != WAIT_OBJECT_0) {
+        LOG_WARN("D3D11 copies did not finish within 5000ms");
+    }
+    CloseHandle(done);
+}
+
 static IDXGIAdapter *find_adapter_matching_vulkan_device(VkPhysicalDevice phys) {
     if (!vkGetPhysicalDeviceProperties2) {
         return NULL;
@@ -491,7 +587,7 @@ static bool dxgi_init(void *native_window_handle, Swapchain *sc) {
         scd.BufferCount = SWAPCHAIN_IMAGE_COUNT;
         scd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
         scd.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
-        scd.Flags = 0;
+        scd.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
 
         hr = IDXGIFactory2_CreateSwapChainForComposition(
             factory,
@@ -503,6 +599,20 @@ static bool dxgi_init(void *native_window_handle, Swapchain *sc) {
 
         if (FAILED(hr) || !sc->dxgiSwapchain) {
             LOG_ERROR("CreateSwapChainForComposition failed (hr=0x%08lx)", hr);
+            return false;
+        }
+
+        IDXGISwapChain2 *sc2 = NULL;
+        hr = IDXGISwapChain1_QueryInterface(sc->dxgiSwapchain, &IID_IDXGISwapChain2_NE, (void **)&sc2);
+        if (FAILED(hr) || !sc2) {
+            LOG_ERROR("QueryInterface(IDXGISwapChain2) failed (hr=0x%08lx)", hr);
+            return false;
+        }
+        hr = IDXGISwapChain2_SetMaximumFrameLatency(sc2, 1);
+        sc->frameLatencyWaitable = IDXGISwapChain2_GetFrameLatencyWaitableObject(sc2);
+        IDXGISwapChain2_Release(sc2);
+        if (FAILED(hr) || !sc->frameLatencyWaitable) {
+            LOG_ERROR("frame latency waitable setup failed (hr=0x%08lx)", hr);
             return false;
         }
     }
@@ -576,6 +686,10 @@ static bool dxgi_init(void *native_window_handle, Swapchain *sc) {
         return false;
     }
 
+    if (!create_shared_fences(sc)) {
+        return false;
+    }
+
     return true;
 }
 
@@ -585,8 +699,17 @@ void swapchain_destroy(Swapchain *sc) {
     if (!sc) return;
 
     vkDeviceWaitIdle(sc->device);
+    wait_for_copies(sc);
 
     release_vk_images(sc);
+
+    if (sc->renderFence) { ID3D11Fence_Release(sc->renderFence); sc->renderFence = NULL; }
+    if (sc->copyFence) { ID3D11Fence_Release(sc->copyFence); sc->copyFence = NULL; }
+    if (sc->renderSemaphore) { vkDestroySemaphore(sc->device, sc->renderSemaphore, NULL); sc->renderSemaphore = VK_NULL_HANDLE; }
+    if (sc->copySemaphore) { vkDestroySemaphore(sc->device, sc->copySemaphore, NULL); sc->copySemaphore = VK_NULL_HANDLE; }
+    if (sc->d3dContext4) { ID3D11DeviceContext4_Release(sc->d3dContext4); sc->d3dContext4 = NULL; }
+    if (sc->d3dDevice5) { ID3D11Device5_Release(sc->d3dDevice5); sc->d3dDevice5 = NULL; }
+    if (sc->frameLatencyWaitable) { CloseHandle(sc->frameLatencyWaitable); sc->frameLatencyWaitable = NULL; }
 
     if (sc->d3dContext) { ID3D11DeviceContext_Release(sc->d3dContext); sc->d3dContext = NULL; }
     if (sc->dcompVisual) { sc->dcompVisual->lpVtbl->Release(sc->dcompVisual); sc->dcompVisual = NULL; }
@@ -601,6 +724,7 @@ void swapchain_destroy(Swapchain *sc) {
 
 bool swapchain_resize(Swapchain *sc, uint32_t width, uint32_t height) {
     vkDeviceWaitIdle(sc->device);
+    wait_for_copies(sc);
 
     release_vk_images(sc);
 
@@ -612,7 +736,7 @@ bool swapchain_resize(Swapchain *sc, uint32_t width, uint32_t height) {
         SWAPCHAIN_IMAGE_COUNT,
         width, height,
         DXGI_FORMAT_B8G8R8A8_UNORM,
-        0);
+        DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);
 
     if (FAILED(hr)) {
         LOG_ERROR("IDXGISwapChain::ResizeBuffers failed (hr=0x%08lx)", hr);
@@ -626,70 +750,61 @@ bool swapchain_resize(Swapchain *sc, uint32_t width, uint32_t height) {
     return true;
 }
 
-SwapchainAcquireResult swapchain_acquire(Swapchain *sc, uint32_t * imageIndex) {
-    /*
-     * DXGI flip model: GetCurrentBackBufferIndex() returns the index of the
-     * buffer that is not currently being presented or queued for presentation.
-     * It's safe to render into immediately — DXGI guarantees this.
-     *
-     * Note: unlike Vulkan WSI, there's no GPU semaphore signaled here.
-     * The image is ready for rendering as soon as this call returns.
-     * The signal_sem is unused (the renderer's fence-wait at frame start
-     * already ensures the previous frame's commands are done).
-     */
-    IDXGISwapChain3 *sc3 = NULL;
-    HRESULT hr = sc->dxgiSwapchain->lpVtbl->QueryInterface((IDXGISwapChain1 *)sc->dxgiSwapchain, &IID_IDXGISwapChain3_NE, (void **)&sc3);
-    if (FAILED(hr) || !sc3) {
-        LOG_ERROR("QueryInterface(IDXGISwapChain3) failed (hr=0x%08lx)", hr);
-        return SWAPCHAIN_ACQUIRE_FAILED;
+void swapchain_wait_for_frame(Swapchain *sc) {
+    if (!sc || sc->frameWaited) return;
+
+    if (WaitForSingleObjectEx(sc->frameLatencyWaitable, 1000, FALSE) != WAIT_OBJECT_0) {
+        LOG_WARN("swapchain was not ready for a new frame within 1000ms");
     }
-
-    UINT index = sc3->lpVtbl->GetCurrentBackBufferIndex(sc3);
-    sc3->lpVtbl->Release((IDXGISwapChain3 *)sc3);
-
-    if (index >= SWAPCHAIN_IMAGE_COUNT) {
-        return SWAPCHAIN_ACQUIRE_FAILED;
-    }
-
-    sc->acquiredImageIndex = index;
-
-    if (imageIndex) {
-        *imageIndex = index;
-    }
-
-    return SWAPCHAIN_ACQUIRE_SUCCESS;
+    sc->frameWaited = true;
 }
 
-SwapchainPresentResult swapchain_present(Swapchain *sc, uint32_t imageIndex) {
-    /* Acquire keyed mutex on the shared texture, copy to swapchain, then release */
-    IDXGIKeyedMutex *mutex = NULL;
-    HRESULT hr = ID3D11Texture2D_QueryInterface(sc->sharedTextures[imageIndex],
-        &IID_IDXGIKeyedMutex_NE, (void **)&mutex);
-    if (FAILED(hr) || !mutex) {
-        LOG_ERROR("QueryInterface(IDXGIKeyedMutex) for shared tex %u failed (hr=0x%08lx)", imageIndex, hr);
-        return SWAPCHAIN_PRESENT_FAILED;
-    }
+SwapchainFrameSync swapchain_frame_sync(const Swapchain *sc) {
+    uint64_t frame = sc->presentCount;
+    return (SwapchainFrameSync){
+        .waitSemaphore = sc->copySemaphore,
+        .waitValue = frame >= SWAPCHAIN_IMAGE_COUNT ? frame - SWAPCHAIN_IMAGE_COUNT + 1 : 0,
+        .signalSemaphore = sc->renderSemaphore,
+        .signalValue = frame + 1,
+        .imageIndex = (uint32_t)(frame % SWAPCHAIN_IMAGE_COUNT),
+    };
+}
 
-    hr = IDXGIKeyedMutex_AcquireSync(mutex, 0, 5000);
+// The caller must already have submitted the Vulkan work that signals renderSemaphore to
+// swapchain_frame_sync(sc).signalValue; otherwise the D3D11 wait below never completes.
+SwapchainPresentResult swapchain_present(Swapchain *sc) {
+    uint64_t frame = sc->presentCount;
+    uint32_t index = (uint32_t)(frame % SWAPCHAIN_IMAGE_COUNT);
+    uint64_t done = frame + 1;
+    bool copied = false;
+
+    HRESULT hr = ID3D11DeviceContext4_Wait(sc->d3dContext4, sc->renderFence, done);
     if (FAILED(hr)) {
-        LOG_ERROR("IDXGIKeyedMutex::AcquireSync for shared tex %u failed (hr=0x%08lx)", imageIndex, hr);
-        IDXGIKeyedMutex_Release(mutex);
-        return SWAPCHAIN_PRESENT_FAILED;
+        LOG_ERROR("ID3D11DeviceContext4::Wait(renderFence, %llu) failed (hr=0x%08lx)", (unsigned long long)done, hr);
+    } else {
+        ID3D11Texture2D *back_buffer = NULL;
+        hr = IDXGISwapChain1_GetBuffer(sc->dxgiSwapchain, 0, &IID_ID3D11Texture2D_NE, (void **)&back_buffer);
+        if (FAILED(hr) || !back_buffer) {
+            LOG_ERROR("IDXGISwapChain::GetBuffer(0) failed (hr=0x%08lx)", hr);
+        } else {
+            ID3D11DeviceContext_CopyResource(sc->d3dContext, (ID3D11Resource *)back_buffer, (ID3D11Resource *)sc->sharedTextures[index]);
+            ID3D11Texture2D_Release(back_buffer);
+            copied = true;
+        }
     }
 
-    ID3D11Texture2D *back_buffer = NULL;
-    hr = IDXGISwapChain1_GetBuffer(sc->dxgiSwapchain, 0, &IID_ID3D11Texture2D_NE, (void **)&back_buffer);
-    if (FAILED(hr) || !back_buffer) {
-        LOG_ERROR("IDXGISwapChain::GetBuffer(0) failed (hr=0x%08lx)", hr);
-        IDXGIKeyedMutex_ReleaseSync(mutex, 0);
-        IDXGIKeyedMutex_Release(mutex);
+    // Always signal, even if the copy was skipped: Vulkan waits on this value before reusing shared[index].
+    hr = ID3D11DeviceContext4_Signal(sc->d3dContext4, sc->copyFence, done);
+    if (FAILED(hr)) {
+        LOG_ERROR("ID3D11DeviceContext4::Signal(copyFence, %llu) failed (hr=0x%08lx)", (unsigned long long)done, hr);
+    }
+    sc->presentCount = done;
+    sc->frameWaited = false;
+
+    if (!copied) {
+        ID3D11DeviceContext_Flush(sc->d3dContext);
         return SWAPCHAIN_PRESENT_FAILED;
     }
-
-    ID3D11DeviceContext_CopyResource(sc->d3dContext, (ID3D11Resource *)back_buffer, (ID3D11Resource *)sc->sharedTextures[imageIndex]);
-    ID3D11Texture2D_Release(back_buffer);
-    IDXGIKeyedMutex_ReleaseSync(mutex, 0);
-    IDXGIKeyedMutex_Release(mutex);
 
     UINT sync_interval = sc->vsync ? 1 : 0;
     DXGI_PRESENT_PARAMETERS params;
@@ -699,11 +814,13 @@ SwapchainPresentResult swapchain_present(Swapchain *sc, uint32_t imageIndex) {
 
     if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
         LOG_ERROR("DXGI device lost (hr=0x%08lx)", hr);
+        ID3D11DeviceContext_Flush(sc->d3dContext);
         return SWAPCHAIN_PRESENT_FAILED;
     }
 
     if (FAILED(hr)) {
         LOG_ERROR("IDXGISwapChain::Present1 failed (hr=0x%08lx)", hr);
+        ID3D11DeviceContext_Flush(sc->d3dContext);
         return SWAPCHAIN_PRESENT_FAILED;
     }
 
