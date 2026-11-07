@@ -1,4 +1,4 @@
-#include "renderer/r_renderer.h"
+#include "renderer/o_renderer_internal.h"
 
 #include "o_log.h"
 

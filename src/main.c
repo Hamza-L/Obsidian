@@ -23,7 +23,7 @@ static void on_key(OInputSubscriber *input, OKeyEvent event, void *user) {
 
 static void on_refresh_render(OWindow *window, void *user) {
     ORenderer* renderer = ((struct RenderData*)user)->renderer;
-    OSurface surface = ((struct RenderData*)user)->surface;
+    // OSurface surface = ((struct RenderData*)user)->surface;
     OImage rt = ((struct RenderData*)user)->renderTarget;
 
     int32_t width, height;
@@ -40,7 +40,7 @@ static void on_refresh_render(OWindow *window, void *user) {
 
             renderer_end_render(renderer);
         }
-        renderer_surface_blit(renderer, surface, rt);
+        // renderer_surface_blit(renderer, surface, rt);
         renderer_end_frame_and_present(renderer);
     }
 }

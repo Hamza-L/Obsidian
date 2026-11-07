@@ -2,7 +2,7 @@
 #include <windows.h>
 #include <windowsx.h>
 
-#include "input/i_input_internal.h"
+#include "input/o_input_internal.h"
 #include "o_log.h"
 
 #define KEY_IS_DOWN(vk) ((GetKeyState(vk) & 0x8000) != 0)

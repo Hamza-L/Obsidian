@@ -47,6 +47,7 @@ $(call require_probe,Visual Studio 2022,"$(VSWHERE)" -latest -property installat
 
 # --- Compile flags --------------------------------------------------------
 CFLAGS += -D_CRT_SECURE_NO_WARNINGS
+CFLAGS += -DGFX_BACKEND_D3D11
 CFLAGS += -DUNICODE -D_UNICODE
 CFLAGS += -fms-runtime-lib=dll_dbg
 

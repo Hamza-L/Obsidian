@@ -3,7 +3,7 @@
 #include "o_renderer.h"
 #include "o_memory.h"
 
-#include "renderer/r_renderer.h"
+#include "renderer/o_renderer_internal.h"
 #include "renderer/backend/vulkan/r_b_vulkan_loader.h"
 #include "renderer/backend/vulkan/r_b_vulkan_limits.h"
 #include "renderer/backend/vulkan/platform/win32/r_b_p_swapchain.h"

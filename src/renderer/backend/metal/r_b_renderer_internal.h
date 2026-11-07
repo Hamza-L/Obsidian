@@ -4,7 +4,7 @@
 #include "o_renderer.h"
 #include "o_memory.h"
 
-#include "renderer/r_renderer.h"
+#include "renderer/o_renderer_internal.h"
 #include "renderer/backend/metal/r_b_metal_limits.h"
 #include "renderer/backend/metal/r_b_gpu_types.h"
 
