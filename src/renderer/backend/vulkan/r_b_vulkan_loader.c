@@ -45,7 +45,7 @@ PFN_vkQueueWaitIdle vkQueueWaitIdle;
 
 PFN_vkCreateSemaphore vkCreateSemaphore;
 PFN_vkDestroySemaphore vkDestroySemaphore;
-PFN_vkGetSemaphoreWin32HandleKHR vkGetSemaphoreWin32HandleKHR;
+PFN_vkImportSemaphoreWin32HandleKHR vkImportSemaphoreWin32HandleKHR;
 PFN_vkCreateFence vkCreateFence;
 PFN_vkDestroyFence vkDestroyFence;
 PFN_vkWaitForFences vkWaitForFences;
@@ -181,7 +181,7 @@ bool vk_load_device_fns(VkDevice device) {
 
     vkCreateSemaphore = (PFN_vkCreateSemaphore)vk_get_device(device, "vkCreateSemaphore");
     vkDestroySemaphore = (PFN_vkDestroySemaphore)vk_get_device(device, "vkDestroySemaphore");
-    vkGetSemaphoreWin32HandleKHR = (PFN_vkGetSemaphoreWin32HandleKHR)vk_get_device(device, "vkGetSemaphoreWin32HandleKHR");
+    vkImportSemaphoreWin32HandleKHR = (PFN_vkImportSemaphoreWin32HandleKHR)vk_get_device(device, "vkImportSemaphoreWin32HandleKHR");
     vkCreateFence = (PFN_vkCreateFence)vk_get_device(device, "vkCreateFence");
     vkDestroyFence = (PFN_vkDestroyFence)vk_get_device(device, "vkDestroyFence");
     vkWaitForFences = (PFN_vkWaitForFences)vk_get_device(device, "vkWaitForFences");
@@ -253,7 +253,7 @@ bool vk_load_device_fns(VkDevice device) {
 
     return vkDestroyDevice && vkGetDeviceQueue && vkCreateSwapchainKHR && vkGetSwapchainImagesKHR &&
            vkAcquireNextImageKHR && vkQueueSubmit && vkQueuePresentKHR && vkCreateSemaphore && vkDestroySemaphore &&
-           vkGetSemaphoreWin32HandleKHR && vkCreateFence &&
+           vkImportSemaphoreWin32HandleKHR && vkCreateFence &&
            vkWaitForFences && vkResetFences && vkCreateCommandPool && vkResetCommandBuffer && vkAllocateCommandBuffers &&
            vkBeginCommandBuffer && vkEndCommandBuffer && vkCmdPipelineBarrier && vkCmdClearColorImage &&
            vkCreateBuffer && vkDestroyBuffer && vkGetBufferMemoryRequirements && vkAllocateMemory && vkFreeMemory && vkBindBufferMemory &&

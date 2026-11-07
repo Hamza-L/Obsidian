@@ -48,7 +48,7 @@ extern PFN_vkQueueWaitIdle vkQueueWaitIdle;
 
 extern PFN_vkCreateSemaphore vkCreateSemaphore;
 extern PFN_vkDestroySemaphore vkDestroySemaphore;
-extern PFN_vkGetSemaphoreWin32HandleKHR vkGetSemaphoreWin32HandleKHR;
+extern PFN_vkImportSemaphoreWin32HandleKHR vkImportSemaphoreWin32HandleKHR;
 extern PFN_vkCreateFence vkCreateFence;
 extern PFN_vkDestroyFence vkDestroyFence;
 extern PFN_vkWaitForFences vkWaitForFences;

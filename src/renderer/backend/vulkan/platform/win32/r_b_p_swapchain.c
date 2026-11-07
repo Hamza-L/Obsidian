@@ -9,8 +9,8 @@
  * Sync model (GPU-only, two shared timeline fences):
  *   renderSemaphore/renderFence: Vulkan signals N+1 once presented frame N is drawn.
  *   copySemaphore/copyFence:     D3D11 signals N+1 once presented frame N is copied out.
- *   Each pair is one kernel object: a Vulkan timeline semaphore exported as a D3D12
- *   fence handle and opened in D3D11 as an ID3D11Fence. Frame N uses shared[N % COUNT],
+ *   Each pair is one kernel object: a shared ID3D11Fence whose D3D12 fence handle is
+ *   imported into a Vulkan timeline semaphore (drivers like NVIDIA import but don't export). Frame N uses shared[N % COUNT],
  *   so Vulkan waits copyFence >= N - COUNT + 1 before overwriting it. N is presentCount.
  */
 #define WIN32_LEAN_AND_MEAN
@@ -382,48 +382,46 @@ static bool create_dxgi_buffers_and_import_to_vulkan(Swapchain *sc) {
 }
 
 static bool create_shared_timeline(Swapchain *sc, VkSemaphore *semaphore, ID3D11Fence **fence) {
+    HRESULT hr = ID3D11Device5_CreateFence(sc->d3dDevice5, 0, D3D11_FENCE_FLAG_SHARED, &IID_ID3D11Fence_NE, (void **)fence);
+    if (FAILED(hr) || !*fence) {
+        LOG_ERROR("ID3D11Device5::CreateFence (shared) failed (hr=0x%08lx)", hr);
+        return false;
+    }
+
+    HANDLE handle = NULL;
+    hr = ID3D11Fence_CreateSharedHandle(*fence, NULL, GENERIC_ALL, NULL, &handle);
+    if (FAILED(hr) || !handle) {
+        LOG_ERROR("ID3D11Fence::CreateSharedHandle failed (hr=0x%08lx)", hr);
+        return false;
+    }
+
     VkSemaphoreTypeCreateInfo type_ci = {
         .sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
         .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
         .initialValue = 0,
     };
-    VkExportSemaphoreWin32HandleInfoKHR export_win32 = {
-        .sType = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_WIN32_HANDLE_INFO_KHR,
-        .pNext = &type_ci,
-        .dwAccess = GENERIC_ALL,
-    };
-    VkExportSemaphoreCreateInfo export_ci = {
-        .sType = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO,
-        .pNext = &export_win32,
-        .handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_D3D12_FENCE_BIT,
-    };
     VkSemaphoreCreateInfo ci = {
         .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-        .pNext = &export_ci,
+        .pNext = &type_ci,
     };
-
     VkResult vr = vkCreateSemaphore(sc->device, &ci, NULL, semaphore);
     if (vr != VK_SUCCESS) {
         LOG_ERROR("vkCreateSemaphore (shared timeline) failed (vr=%d)", (int)vr);
+        CloseHandle(handle);
         return false;
     }
 
-    VkSemaphoreGetWin32HandleInfoKHR handle_info = {
-        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_GET_WIN32_HANDLE_INFO_KHR,
+    VkImportSemaphoreWin32HandleInfoKHR import_info = {
+        .sType = VK_STRUCTURE_TYPE_IMPORT_SEMAPHORE_WIN32_HANDLE_INFO_KHR,
         .semaphore = *semaphore,
         .handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_D3D12_FENCE_BIT,
+        .handle = handle,
     };
-    HANDLE handle = NULL;
-    vr = vkGetSemaphoreWin32HandleKHR(sc->device, &handle_info, &handle);
-    if (vr != VK_SUCCESS || !handle) {
-        LOG_ERROR("vkGetSemaphoreWin32HandleKHR failed (vr=%d)", (int)vr);
-        return false;
-    }
-
-    HRESULT hr = ID3D11Device5_OpenSharedFence(sc->d3dDevice5, handle, &IID_ID3D11Fence_NE, (void **)fence);
+    vr = vkImportSemaphoreWin32HandleKHR(sc->device, &import_info);
+    // Importing an NT handle does not take ownership of it: close it either way.
     CloseHandle(handle);
-    if (FAILED(hr) || !*fence) {
-        LOG_ERROR("ID3D11Device5::OpenSharedFence failed (hr=0x%08lx)", hr);
+    if (vr != VK_SUCCESS) {
+        LOG_ERROR("vkImportSemaphoreWin32HandleKHR failed (vr=%d)", (int)vr);
         return false;
     }
     return true;
