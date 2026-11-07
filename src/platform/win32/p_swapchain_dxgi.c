@@ -148,6 +148,9 @@ struct Swapchain {
     HANDLE frameLatencyWaitable;
     bool frameWaited;
 
+    /* Set when a failure leaves the timelines unrecoverable: never present or wait on it again */
+    bool lost;
+
     VkPhysicalDeviceMemoryProperties memProps;
 };
 
@@ -386,9 +389,14 @@ static bool create_shared_timeline(Swapchain *sc, VkSemaphore *semaphore, ID3D11
         .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
         .initialValue = 0,
     };
+    VkExportSemaphoreWin32HandleInfoKHR export_win32 = {
+        .sType = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_WIN32_HANDLE_INFO_KHR,
+        .pNext = &type_ci,
+        .dwAccess = GENERIC_ALL,
+    };
     VkExportSemaphoreCreateInfo export_ci = {
         .sType = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO,
-        .pNext = &type_ci,
+        .pNext = &export_win32,
         .handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_D3D12_FENCE_BIT,
     };
     VkSemaphoreCreateInfo ci = {
@@ -441,7 +449,7 @@ static bool create_shared_fences(Swapchain *sc) {
 }
 
 static void wait_for_copies(Swapchain *sc) {
-    if (!sc->d3dContext || !sc->copyFence) return;
+    if (!sc->d3dContext || !sc->copyFence || sc->lost) return;
 
     ID3D11DeviceContext_Flush(sc->d3dContext);
     if (sc->presentCount == 0) return;
@@ -529,12 +537,13 @@ static bool dxgi_init(void *native_window_handle, Swapchain *sc) {
 
         IDXGIAdapter *adapter = find_adapter_matching_vulkan_device(sc->phys);
         if (!adapter) {
-            LOG_WARN("no DXGI adapter matches the Vulkan device LUID, using the default adapter");
+            LOG_ERROR("no DXGI adapter matches the Vulkan device LUID: textures and fences cannot be shared");
+            return false;
         }
 
         hr = D3D11CreateDevice(
             adapter,
-            adapter ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE,
+            D3D_DRIVER_TYPE_UNKNOWN,
             NULL,
             flags,
             &feature_level, 1,
@@ -542,9 +551,7 @@ static bool dxgi_init(void *native_window_handle, Swapchain *sc) {
             &sc->d3dDevice,
             NULL, NULL);
 
-        if (adapter) {
-            IDXGIAdapter_Release(adapter);
-        }
+        IDXGIAdapter_Release(adapter);
 
         if (FAILED(hr) || !sc->d3dDevice) {
             LOG_ERROR("D3D11CreateDevice failed (hr=0x%08lx)", hr);
@@ -723,6 +730,8 @@ void swapchain_destroy(Swapchain *sc) {
 }
 
 bool swapchain_resize(Swapchain *sc, uint32_t width, uint32_t height) {
+    if (sc->lost || width == 0 || height == 0) return false;
+
     vkDeviceWaitIdle(sc->device);
     wait_for_copies(sc);
 
@@ -740,10 +749,12 @@ bool swapchain_resize(Swapchain *sc, uint32_t width, uint32_t height) {
 
     if (FAILED(hr)) {
         LOG_ERROR("IDXGISwapChain::ResizeBuffers failed (hr=0x%08lx)", hr);
+        sc->lost = true;
         return false;
     }
 
     if (!create_dxgi_buffers_and_import_to_vulkan(sc)) {
+        sc->lost = true;
         return false;
     }
 
@@ -757,6 +768,10 @@ void swapchain_wait_for_frame(Swapchain *sc) {
         LOG_WARN("swapchain was not ready for a new frame within 1000ms");
     }
     sc->frameWaited = true;
+}
+
+bool swapchain_is_lost(const Swapchain *sc) {
+    return sc->lost;
 }
 
 SwapchainFrameSync swapchain_frame_sync(const Swapchain *sc) {
@@ -773,6 +788,8 @@ SwapchainFrameSync swapchain_frame_sync(const Swapchain *sc) {
 // The caller must already have submitted the Vulkan work that signals renderSemaphore to
 // swapchain_frame_sync(sc).signalValue; otherwise the D3D11 wait below never completes.
 SwapchainPresentResult swapchain_present(Swapchain *sc) {
+    swapchain_wait_for_frame(sc);
+
     uint64_t frame = sc->presentCount;
     uint32_t index = (uint32_t)(frame % SWAPCHAIN_IMAGE_COUNT);
     uint64_t done = frame + 1;
@@ -797,11 +814,11 @@ SwapchainPresentResult swapchain_present(Swapchain *sc) {
     hr = ID3D11DeviceContext4_Signal(sc->d3dContext4, sc->copyFence, done);
     if (FAILED(hr)) {
         LOG_ERROR("ID3D11DeviceContext4::Signal(copyFence, %llu) failed (hr=0x%08lx)", (unsigned long long)done, hr);
+        sc->lost = true;
     }
     sc->presentCount = done;
-    sc->frameWaited = false;
 
-    if (!copied) {
+    if (!copied || sc->lost) {
         ID3D11DeviceContext_Flush(sc->d3dContext);
         return SWAPCHAIN_PRESENT_FAILED;
     }
@@ -814,7 +831,7 @@ SwapchainPresentResult swapchain_present(Swapchain *sc) {
 
     if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
         LOG_ERROR("DXGI device lost (hr=0x%08lx)", hr);
-        ID3D11DeviceContext_Flush(sc->d3dContext);
+        sc->lost = true;
         return SWAPCHAIN_PRESENT_FAILED;
     }
 
@@ -824,6 +841,8 @@ SwapchainPresentResult swapchain_present(Swapchain *sc) {
         return SWAPCHAIN_PRESENT_FAILED;
     }
 
+    // Only a successful Present1 returns a token to the latency waitable.
+    sc->frameWaited = false;
     return SWAPCHAIN_PRESENT_SUCCESS;
 }
 

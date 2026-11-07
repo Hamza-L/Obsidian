@@ -38,6 +38,7 @@ void swapchain_destroy(Swapchain *sc);
 
 void swapchain_wait_for_frame(Swapchain *sc);
 SwapchainFrameSync swapchain_frame_sync(const Swapchain *sc);
+bool swapchain_is_lost(const Swapchain *sc);
 SwapchainPresentResult swapchain_present(Swapchain *sc);
 
 #endif /* SWAPCHAIN_H */
