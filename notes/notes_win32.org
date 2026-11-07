@@ -1,4 +1,5 @@
 #+title: Notes Win32
 
 we're getting the following runtime errors despite using : VK_API_VERSION_1_4
-[22:40:00 ERROR r_b_renderer.c:306] renderer_create(): no suitable Vulkan physical device found (need Vulkan 1.3, bindless features, D3D12 fence export and a graphics queue)
+[22:49:16 WARN  r_b_renderer.c:129] NVIDIA GeForce RTX 4060: timeline semaphores cannot be exported as D3D12 fences (features=0x2 compatible=0x8 exportFrom=0x8)
+[22:49:16 ERROR r_b_renderer.c:333] renderer_create(): no suitable Vulkan physical device found (need Vulkan 1.3, bindless features, D3D12 fence export and a graphics queue)
