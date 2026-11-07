@@ -13,8 +13,6 @@
  *   fence handle and opened in D3D11 as an ID3D11Fence. Frame N uses shared[N % COUNT],
  *   so Vulkan waits copyFence >= N - COUNT + 1 before overwriting it. N is presentCount.
  */
-#include "p_swapchain.h"
-
 #define WIN32_LEAN_AND_MEAN
 #define COBJMACROS
 #include <windows.h>
@@ -22,10 +20,10 @@
 #include <dxgi1_4.h>
 #include <initguid.h>
 
-#include "p_vulkan_loader.h"
-#include "p_vulkan_limits.h"
-
 #include "o_log.h"
+
+#include "renderer/backend/vulkan/platform/win32/r_b_p_swapchain.h"
+#include "renderer/backend/vulkan/r_b_vulkan_limits.h"
 
 #include <stdlib.h>
 #include <string.h>

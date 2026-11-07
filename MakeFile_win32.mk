@@ -49,7 +49,6 @@ $(call require_probe,Visual Studio 2022,"$(VSWHERE)" -latest -property installat
 CFLAGS += -D_CRT_SECURE_NO_WARNINGS
 CFLAGS += -DUNICODE -D_UNICODE
 CFLAGS += -fms-runtime-lib=dll_dbg
-CFLAGS += -Isrc/renderer/vulkan
 
 # --- Link flags -----------------------------------------------------------
 LDFLAGS += -g

@@ -10,13 +10,13 @@ LANGFLAGS := -x objective-c -fobjc-arc -fmodules
 LDFLAGS += -framework Cocoa
 LDFLAGS += -framework Metal -framework QuartzCore
 
-# Shaders compile offline, one .metallib per source: src/shaders/foo.metal -> build/shaders/foo.metallib
-SHADER_DIR := src/shaders
+# Shaders compile offline, one .metallib per source: src/renderer/backend/metal/shaders/foo.metal -> build/shaders/foo.metallib
+SHADER_DIR := src/renderer/backend/metal/shaders
 SHADER_BUILD_DIR := $(BUILD_DIR)/shaders
 SHADER_SOURCES := $(wildcard $(SHADER_DIR)/*.metal)
 SHADER_LIBS := $(patsubst $(SHADER_DIR)/%.metal,$(SHADER_BUILD_DIR)/%.metallib,$(SHADER_SOURCES))
 
-METALFLAGS := -std=metal4.0 -Wall -Werror -I./$(SHADER_DIR) -I./src/platform/macos
+METALFLAGS := -std=metal4.0 -Wall -Werror -I./src
 ifeq ($(RENDERER_VALIDATION),1)
 METALFLAGS += -frecord-sources -gline-tables-only
 endif

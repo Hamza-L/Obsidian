@@ -1,9 +1,7 @@
-#ifndef SWAPCHAIN_H
-#define SWAPCHAIN_H
+#ifndef R_B_P_SWAPCHAIN_H
+#define R_B_P_SWAPCHAIN_H
 
-#define VK_NO_PROTOTYPES
-#define VK_USE_PLATFORM_WIN32_KHR
-#include <vulkan/vulkan.h>
+#include "renderer/backend/vulkan/r_b_vulkan_loader.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -41,4 +39,4 @@ SwapchainFrameSync swapchain_frame_sync(const Swapchain *sc);
 bool swapchain_is_lost(const Swapchain *sc);
 SwapchainPresentResult swapchain_present(Swapchain *sc);
 
-#endif /* SWAPCHAIN_H */
+#endif /* R_B_P_SWAPCHAIN_H */

@@ -1,10 +1,13 @@
 #include "o_memory.h"
 
-#include "m_alloc_internal.h"
+#include "memory/m_alloc.h"
 #include "o_log.h"
 
 #include <string.h>
 #include <stdlib.h>
+
+#define INIT_POOL_SLOT_COUNT 16
+#define MEM_SCALING_FACTOR 2
 
 typedef enum {
 MPOOL_OK,

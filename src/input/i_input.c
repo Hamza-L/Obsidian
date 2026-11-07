@@ -1,5 +1,4 @@
-#include "i_input_internal.h"
-#include "o_input.h"
+#include "input/i_input_internal.h"
 #include "o_log.h"
 
 #include <string.h>

@@ -1,7 +1,7 @@
-#include "memory/m_alloc.c"
+#include "memory/m_pool.c"
 
 #if defined(__APPLE__)
-#include "memory/m_alloc_macos.c"
+#include "memory/platform/macos/m_p_alloc.c"
 #elif defined(_WIN32)
-#include "memory/m_alloc_win32.c"
+#include "memory/platform/win32/m_p_alloc.c"
 #endif

@@ -45,7 +45,6 @@ CFLAGS := -std=c99 -g -DDEBUG -Wall -Wextra -Wpedantic -Werror -DRENDERER_VALIDA
 CFLAGS += -I./external
 CFLAGS += -I./include
 CFLAGS += -I./src
-CFLAGS += -I./src/input
 
 # Platform makefiles set this to change the language the unity roots compile as.
 LANGFLAGS :=

@@ -1,8 +1,10 @@
-#include <stddef.h>
+#ifndef M_ALLOC_H
+#define M_ALLOC_H
 
-#define INIT_POOL_SLOT_COUNT 16
-#define MEM_SCALING_FACTOR 2
+#include <stddef.h>
 
 void * m_reserve(size_t size);
 void * m_commit(void *data, size_t size);
 void m_release(void *data, size_t size);
+
+#endif //M_ALLOC_H

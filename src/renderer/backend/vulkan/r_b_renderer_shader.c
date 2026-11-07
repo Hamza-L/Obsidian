@@ -1,7 +1,6 @@
-#include "o_renderer.h"
 #include "o_log.h"
 
-#include "p_renderer_internal.h"
+#include "renderer/backend/vulkan/r_b_renderer_internal.h"
 
 #include "glslang_c_shader_types.h"
 #include "glslang_c_interface.h"

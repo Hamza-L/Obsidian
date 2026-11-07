@@ -1,14 +1,6 @@
-#include "o_renderer.h"
 #include "o_log.h"
-#include "o_memory.h"
 
-#include "p_vulkan_loader.h"
-#include "p_vulkan_limits.h"
-
-#include "p_renderer_internal.h"
-
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
+#include "renderer/backend/vulkan/r_b_renderer_internal.h"
 
 #include <stdlib.h>
 #include <string.h>

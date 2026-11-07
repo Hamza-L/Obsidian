@@ -1,3 +1,6 @@
+#ifndef R_B_METAL_LIMITS_H
+#define R_B_METAL_LIMITS_H
+
 #define SWAPCHAIN_IMAGE_COUNT 3
 #define MAX_FRAMES_IN_FLIGHT 2
 
@@ -16,3 +19,5 @@
 
 #define FRAME_ARENA_ALIGN 16
 #define FRAME_ARENA_SIZE 4096
+
+#endif //R_B_METAL_LIMITS_H
