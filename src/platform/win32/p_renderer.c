@@ -23,6 +23,7 @@ static const char *const k_instance_extensions[] = {
 static const char *const k_device_extensions[] = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME,
     VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
+    VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME,
     // VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME,
     // VK_KHR_SHADER_UNTYPED_POINTERS_EXTENSION_NAME,
     // VK_KHR_DEVICE_ADDRESS_COMMANDS_EXTENSION_NAME,
@@ -114,6 +115,23 @@ static bool instance_has_extensions(const char *const *names, uint32_t count) {
     return all_found;
 }
 
+static bool device_supports_d3d12_fence_export(VkPhysicalDevice device) {
+    VkSemaphoreTypeCreateInfo timeline = {
+        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
+        .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
+    };
+    VkPhysicalDeviceExternalSemaphoreInfo info = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_SEMAPHORE_INFO,
+        .pNext = &timeline,
+        .handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_D3D12_FENCE_BIT,
+    };
+    VkExternalSemaphoreProperties props = {.sType = VK_STRUCTURE_TYPE_EXTERNAL_SEMAPHORE_PROPERTIES};
+    vkGetPhysicalDeviceExternalSemaphoreProperties(device, &info, &props);
+
+    return (props.externalSemaphoreFeatures & VK_EXTERNAL_SEMAPHORE_FEATURE_EXPORTABLE_BIT) &&
+           (props.compatibleHandleTypes & VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_D3D12_FENCE_BIT);
+}
+
 static bool device_supports_required_features(VkPhysicalDevice device) {
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(device, &props);
@@ -124,7 +142,8 @@ static bool device_supports_required_features(VkPhysicalDevice device) {
     VkPhysicalDeviceFeatures2 f2 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &f12};
     vkGetPhysicalDeviceFeatures2(device, &f2);
 
-    return f12.descriptorIndexing &&
+    return f12.timelineSemaphore &&
+           f12.descriptorIndexing &&
            f12.runtimeDescriptorArray &&
            f12.descriptorBindingPartiallyBound &&
            f12.shaderSampledImageArrayNonUniformIndexing &&
@@ -255,6 +274,7 @@ ORenderer *renderer_create(ORendererDesc desc) {
     for (uint32_t i = 0; i < npd && i < MAX_PHYS_DEVICES; i++) {
         if (!device_has_extensions(physDevices[i], k_device_extensions, nReqDeviceExts)) continue;
         if (!device_supports_required_features(physDevices[i])) continue;
+        if (!device_supports_d3d12_fence_export(physDevices[i])) continue;
         graphicsqfi = UINT32_MAX;
         transferqfi = UINT32_MAX;
         uint32_t nqfi = 0;
@@ -291,7 +311,7 @@ ORenderer *renderer_create(ORendererDesc desc) {
     }
 
     if (physd == VK_NULL_HANDLE) {
-        LOG_ERROR("renderer_create(): no suitable Vulkan physical device found (need Vulkan 1.3, bindless features and a graphics queue)");
+        LOG_ERROR("renderer_create(): no suitable Vulkan physical device found (need Vulkan 1.3, bindless features, D3D12 fence export and a graphics queue)");
         renderer_destroy(&g_renderer);
         return NULL;
     } else {
@@ -325,6 +345,7 @@ ORenderer *renderer_create(ORendererDesc desc) {
     VkPhysicalDeviceVulkan12Features enabled12 = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
         .pNext = &enabled13,
+        .timelineSemaphore = VK_TRUE,
         .descriptorIndexing = VK_TRUE,
         .runtimeDescriptorArray = VK_TRUE,
         .descriptorBindingPartiallyBound = VK_TRUE,

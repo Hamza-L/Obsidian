@@ -15,6 +15,7 @@ PFN_vkEnumeratePhysicalDevices vkEnumeratePhysicalDevices;
 PFN_vkGetPhysicalDeviceProperties vkGetPhysicalDeviceProperties;
 PFN_vkGetPhysicalDeviceProperties2 vkGetPhysicalDeviceProperties2;
 PFN_vkGetPhysicalDeviceFeatures2 vkGetPhysicalDeviceFeatures2;
+PFN_vkGetPhysicalDeviceExternalSemaphoreProperties vkGetPhysicalDeviceExternalSemaphoreProperties;
 PFN_vkEnumerateDeviceExtensionProperties vkEnumerateDeviceExtensionProperties;
 PFN_vkGetPhysicalDeviceQueueFamilyProperties vkGetPhysicalDeviceQueueFamilyProperties;
 
@@ -44,6 +45,7 @@ PFN_vkQueueWaitIdle vkQueueWaitIdle;
 
 PFN_vkCreateSemaphore vkCreateSemaphore;
 PFN_vkDestroySemaphore vkDestroySemaphore;
+PFN_vkGetSemaphoreWin32HandleKHR vkGetSemaphoreWin32HandleKHR;
 PFN_vkCreateFence vkCreateFence;
 PFN_vkDestroyFence vkDestroyFence;
 PFN_vkWaitForFences vkWaitForFences;
@@ -141,6 +143,7 @@ bool vk_load_instance_fns(VkInstance instance) {
     vkGetPhysicalDeviceProperties = (PFN_vkGetPhysicalDeviceProperties)vk_get_instance(instance, "vkGetPhysicalDeviceProperties");
     vkGetPhysicalDeviceProperties2 = (PFN_vkGetPhysicalDeviceProperties2)vk_get_instance(instance, "vkGetPhysicalDeviceProperties2");
     vkGetPhysicalDeviceFeatures2 = (PFN_vkGetPhysicalDeviceFeatures2)vk_get_instance(instance, "vkGetPhysicalDeviceFeatures2");
+    vkGetPhysicalDeviceExternalSemaphoreProperties = (PFN_vkGetPhysicalDeviceExternalSemaphoreProperties)vk_get_instance(instance, "vkGetPhysicalDeviceExternalSemaphoreProperties");
     vkEnumerateDeviceExtensionProperties = (PFN_vkEnumerateDeviceExtensionProperties)vk_get_instance(instance, "vkEnumerateDeviceExtensionProperties");
     vkGetPhysicalDeviceQueueFamilyProperties = (PFN_vkGetPhysicalDeviceQueueFamilyProperties)vk_get_instance(instance, "vkGetPhysicalDeviceQueueFamilyProperties");
     vkCreateDevice = (PFN_vkCreateDevice)vk_get_instance(instance, "vkCreateDevice");
@@ -155,6 +158,7 @@ bool vk_load_instance_fns(VkInstance instance) {
     vkGetPhysicalDeviceSurfacePresentModesKHR = (PFN_vkGetPhysicalDeviceSurfacePresentModesKHR)vk_get_instance(instance, "vkGetPhysicalDeviceSurfacePresentModesKHR");
 
     return vkDestroyInstance && vkEnumeratePhysicalDevices && vkGetPhysicalDeviceProperties && vkGetPhysicalDeviceFeatures2 &&
+           vkGetPhysicalDeviceExternalSemaphoreProperties &&
            vkGetPhysicalDeviceQueueFamilyProperties && vkCreateDevice &&
            vkCreateWin32SurfaceKHR && vkDestroySurfaceKHR && vkGetPhysicalDeviceSurfaceSupportKHR &&
            vkGetPhysicalDeviceSurfaceCapabilitiesKHR && vkGetPhysicalDeviceSurfaceFormatsKHR && vkGetPhysicalDeviceSurfacePresentModesKHR &&
@@ -177,6 +181,7 @@ bool vk_load_device_fns(VkDevice device) {
 
     vkCreateSemaphore = (PFN_vkCreateSemaphore)vk_get_device(device, "vkCreateSemaphore");
     vkDestroySemaphore = (PFN_vkDestroySemaphore)vk_get_device(device, "vkDestroySemaphore");
+    vkGetSemaphoreWin32HandleKHR = (PFN_vkGetSemaphoreWin32HandleKHR)vk_get_device(device, "vkGetSemaphoreWin32HandleKHR");
     vkCreateFence = (PFN_vkCreateFence)vk_get_device(device, "vkCreateFence");
     vkDestroyFence = (PFN_vkDestroyFence)vk_get_device(device, "vkDestroyFence");
     vkWaitForFences = (PFN_vkWaitForFences)vk_get_device(device, "vkWaitForFences");
@@ -247,7 +252,8 @@ bool vk_load_device_fns(VkDevice device) {
     vkCmdPushConstants = (PFN_vkCmdPushConstants)vk_get_device(device, "vkCmdPushConstants");
 
     return vkDestroyDevice && vkGetDeviceQueue && vkCreateSwapchainKHR && vkGetSwapchainImagesKHR &&
-           vkAcquireNextImageKHR && vkQueueSubmit && vkQueuePresentKHR && vkCreateSemaphore && vkCreateFence &&
+           vkAcquireNextImageKHR && vkQueueSubmit && vkQueuePresentKHR && vkCreateSemaphore && vkDestroySemaphore &&
+           vkGetSemaphoreWin32HandleKHR && vkCreateFence &&
            vkWaitForFences && vkResetFences && vkCreateCommandPool && vkResetCommandBuffer && vkAllocateCommandBuffers &&
            vkBeginCommandBuffer && vkEndCommandBuffer && vkCmdPipelineBarrier && vkCmdClearColorImage &&
            vkCreateBuffer && vkDestroyBuffer && vkGetBufferMemoryRequirements && vkAllocateMemory && vkFreeMemory && vkBindBufferMemory &&

@@ -18,6 +18,7 @@ extern PFN_vkEnumeratePhysicalDevices vkEnumeratePhysicalDevices;
 extern PFN_vkGetPhysicalDeviceProperties vkGetPhysicalDeviceProperties;
 extern PFN_vkGetPhysicalDeviceProperties2 vkGetPhysicalDeviceProperties2;
 extern PFN_vkGetPhysicalDeviceFeatures2 vkGetPhysicalDeviceFeatures2;
+extern PFN_vkGetPhysicalDeviceExternalSemaphoreProperties vkGetPhysicalDeviceExternalSemaphoreProperties;
 extern PFN_vkEnumerateDeviceExtensionProperties vkEnumerateDeviceExtensionProperties;
 extern PFN_vkGetPhysicalDeviceQueueFamilyProperties vkGetPhysicalDeviceQueueFamilyProperties;
 
@@ -47,6 +48,7 @@ extern PFN_vkQueueWaitIdle vkQueueWaitIdle;
 
 extern PFN_vkCreateSemaphore vkCreateSemaphore;
 extern PFN_vkDestroySemaphore vkDestroySemaphore;
+extern PFN_vkGetSemaphoreWin32HandleKHR vkGetSemaphoreWin32HandleKHR;
 extern PFN_vkCreateFence vkCreateFence;
 extern PFN_vkDestroyFence vkDestroyFence;
 extern PFN_vkWaitForFences vkWaitForFences;
