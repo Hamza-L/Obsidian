@@ -62,6 +62,9 @@ build_shaders() {
     for src in "$SHADER_DIR"/*.metal; do
         [ -e "$src" ] || continue
         out="$BUILD_DIR/shaders/$(basename "$src" .metal).metallib"
+        if [ -f "$out" ] && [ ! "$src" -nt "$out" ] && [ -z "$(find src -name '*.h' -newer "$out" -print -quit)" ]; then
+            continue
+        fi
         echo "METAL $src"
         run xcrun -sdk macosx metal $METALFLAGS "$src" -o "$out"
     done
