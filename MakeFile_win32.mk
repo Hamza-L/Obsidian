@@ -59,6 +59,8 @@ LDLIBS += -lgdi32.lib
 LDLIBS += -ldwmapi.lib
 LDLIBS += -ld3d11.lib
 LDLIBS += -ldxgi.lib
+LDLIBS += -ld3dcompiler.lib
+LDLIBS += -ldxguid.lib
 LDLIBS += -Wl,-nodefaultlib:libcmt.lib
 LDLIBS += -Wl,-nodefaultlib:libcmtd.lib
 

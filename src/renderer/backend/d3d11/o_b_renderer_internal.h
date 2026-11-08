@@ -1,43 +1,47 @@
 #ifndef O_B_RENDERER_INTERNAL_H
 #define O_B_RENDERER_INTERNAL_H
+
 #include "o_renderer.h"
 #include "o_memory.h"
 
 #include "renderer/o_renderer_internal.h"
 
 #define WIN32_LEAN_AND_MEAN
+#define COBJMACROS
 #include <windows.h>
+#include <d3d11.h>
+#include <dxgi1_2.h>
 
 #define MAX_LAYER_COUNT 8
-#define MAX_SHADER_COUNT 256
+#define MAX_IMAGE_COUNT 256
 
-typedef struct OShaderSlot OShaderSlot;
-typedef struct OImageSlot OImageSlot;
-typedef struct Swapchain Swapchain;
+typedef struct OImageSlot {
+    OImageDesc desc;
+    ID3D11Texture2D *texture;
+    ID3D11RenderTargetView *rtv;
+} OImageSlot;
 
 struct ORenderer {
-    uint64_t frameIndex;
+    ID3D11Device *device;
+    ID3D11DeviceContext *context;
+    IDXGIFactory2 *factory;
+
+    ID3D11VertexShader *triangleVS;
+    ID3D11PixelShader *trianglePS;
+    ID3D11RasterizerState *noCull;
+
+    MPool imagePool;
+
     struct {
         struct {
-            void *hwnd;
-            Swapchain *swapchain;
+            IDXGISwapChain1 *swapchain;
+            bool vsync;
             uint32_t age;
-        } data[MAX_LAYER_COUNT] ;
+        } data[MAX_LAYER_COUNT];
     } layerList;
 
-    MPool shaderPool;
-    MPool imagePool;
-};
-
-struct OShaderSlot{
-    OShaderStage stage;
-    void * shader;
-    bool compiled;
-};
-
-struct OImageSlot{
-    OImageDesc desc;
-    void * image;
+    uint32_t presentMask;
+    bool rendering;
 };
 
 #endif //O_B_RENDERER_INTERNAL_H
