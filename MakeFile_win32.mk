@@ -47,7 +47,6 @@ $(call require_probe,Visual Studio 2022,"$(VSWHERE)" -latest -property installat
 
 # --- Compile flags --------------------------------------------------------
 CFLAGS += -D_CRT_SECURE_NO_WARNINGS
-CFLAGS += -DGFX_BACKEND_D3D11
 CFLAGS += -DUNICODE -D_UNICODE
 CFLAGS += -fms-runtime-lib=dll_dbg
 
@@ -59,8 +58,6 @@ LDLIBS += -lgdi32.lib
 LDLIBS += -ldwmapi.lib
 LDLIBS += -ld3d11.lib
 LDLIBS += -ldxgi.lib
-LDLIBS += -ld3dcompiler.lib
-LDLIBS += -ldxguid.lib
 LDLIBS += -Wl,-nodefaultlib:libcmt.lib
 LDLIBS += -Wl,-nodefaultlib:libcmtd.lib
 
@@ -68,6 +65,19 @@ ifeq ($(ASAN),1)
 LDLIBS += clang_rt.asan-x86_64.lib
 endif
 
+# --- Graphics backend ------------------------------------------------------
+# `make GFX_BACKEND=d3d11` builds the D3D11 backend; the default is Vulkan.
+GFX_BACKEND ?= vulkan
+
+ifeq ($(GFX_BACKEND),d3d11)
+CFLAGS += -DGFX_BACKEND_D3D11
+LDLIBS += -ld3dcompiler.lib
+LDLIBS += -ldxguid.lib
+else ifneq ($(GFX_BACKEND),vulkan)
+$(error Unknown GFX_BACKEND '$(GFX_BACKEND)'. Use vulkan or d3d11)
+endif
+
+ifeq ($(GFX_BACKEND),vulkan)
 # --- Dependencies: Vulkan-Headers (headers only) --------------------------
 VULKAN_HEADERS_VERSION ?= 1.4.365
 VULKAN_HEADERS_DIR := external/vulkan-headers
@@ -119,6 +129,17 @@ $(GLSLANG_LIB):
 		-DENABLE_GLSLANG_BINARIES=OFF
 	@cmake --build $(GLSLANG_BUILD_DIR) --config Debug --target install --parallel
 
+$(VULKAN_HEADERS_MARKER):
+	@echo "DEPS Vulkan-Headers v$(VULKAN_HEADERS_VERSION)"
+	@$(call mkdir_p,$(BUILD_DIR)/deps)
+	@powershell -NoProfile -Command "Invoke-WebRequest -Uri '$(VULKAN_HEADERS_URL)' -OutFile '$(VULKAN_HEADERS_ZIP)'"
+	@powershell -NoProfile -Command "Expand-Archive -Force '$(VULKAN_HEADERS_ZIP)' '$(BUILD_DIR)/deps'"
+	@powershell -NoProfile -Command "if (Test-Path '$(VULKAN_HEADERS_DIR)') { Remove-Item -Recurse -Force '$(VULKAN_HEADERS_DIR)' }"
+	@$(call mkdir_p,external)
+	@powershell -NoProfile -Command "Move-Item -Force '$(BUILD_DIR)/deps/Vulkan-Headers-$(VULKAN_HEADERS_VERSION)' '$(VULKAN_HEADERS_DIR)'"
+
+endif # GFX_BACKEND == vulkan
+
 # --- Dependencies: FreeType (built from upstream source) ------------------
 # Built once via CMake+MSBuild; the produced .lib is the marker, so a second
 # `make` sees the lib and skips fetch/configure/compile entirely. CRT is /MDd
@@ -153,13 +174,3 @@ $(FREETYPE_LIB):
 		-DFT_DISABLE_HARFBUZZ=TRUE \
 		-DFT_DISABLE_BROTLI=TRUE
 	@cmake --build $(FREETYPE_BUILD_DIR) --config Debug --target install --parallel
-
-# --- Dependency download rules --------------------------------------------
-$(VULKAN_HEADERS_MARKER):
-	@echo "DEPS Vulkan-Headers v$(VULKAN_HEADERS_VERSION)"
-	@$(call mkdir_p,$(BUILD_DIR)/deps)
-	@powershell -NoProfile -Command "Invoke-WebRequest -Uri '$(VULKAN_HEADERS_URL)' -OutFile '$(VULKAN_HEADERS_ZIP)'"
-	@powershell -NoProfile -Command "Expand-Archive -Force '$(VULKAN_HEADERS_ZIP)' '$(BUILD_DIR)/deps'"
-	@powershell -NoProfile -Command "if (Test-Path '$(VULKAN_HEADERS_DIR)') { Remove-Item -Recurse -Force '$(VULKAN_HEADERS_DIR)' }"
-	@$(call mkdir_p,external)
-	@powershell -NoProfile -Command "Move-Item -Force '$(BUILD_DIR)/deps/Vulkan-Headers-$(VULKAN_HEADERS_VERSION)' '$(VULKAN_HEADERS_DIR)'"
