@@ -20,6 +20,8 @@ APP=Obsidian
 BUILD_DIR=build
 SHADER_DIR=src/renderer/backend/metal/shaders
 
+STB_IMAGE_COMMIT=013ac3beddff3dbffafd5177e7972067cd2b5083
+
 CFLAGS="-std=c99 -g -DDEBUG -Wall -Wextra -Wpedantic -Werror -DRENDERER_VALIDATION=$RENDERER_VALIDATION"
 CFLAGS="$CFLAGS -I./external -I./include -I./src"
 LANGFLAGS="-x objective-c -fobjc-arc -fmodules"
@@ -47,6 +49,13 @@ require() {
     fi
 }
 
+deps_stb() {
+    [ -f external/stb/stb_image.h ] && return
+    echo "DEPS stb_image ($STB_IMAGE_COMMIT)"
+    mkdir -p external/stb
+    run curl -sSfL -o external/stb/stb_image.h "https://raw.githubusercontent.com/nothings/stb/$STB_IMAGE_COMMIT/stb_image.h"
+}
+
 build_shaders() {
     require "Metal toolchain" "xcrun -sdk macosx metal --version" "Install with: xcodebuild -downloadComponent MetalToolchain"
     mkdir -p "$BUILD_DIR/shaders"
@@ -66,13 +75,16 @@ build_exe() {
 }
 
 require "clang" "clang --version" "Install with: xcode-select --install"
+require "curl" "curl --version" "curl ships with macOS."
 
 case "${1:-app}" in
     app)
+        deps_stb
         build_shaders
         build_exe src/main.c "$BUILD_DIR/$APP"
         ;;
     test)
+        deps_stb
         build_exe test/test_main.c "$BUILD_DIR/${APP}_test"
         "./$BUILD_DIR/${APP}_test"
         ;;

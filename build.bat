@@ -24,6 +24,8 @@ set BUILD_DIR=build
 
 set VULKAN_HEADERS_VERSION=1.4.365
 set GLSLANG_VERSION=16.5.0
+set FREETYPE_VERSION=2.13.3
+set STB_IMAGE_COMMIT=013ac3beddff3dbffafd5177e7972067cd2b5083
 
 set CFLAGS=-std=c99 -g -DDEBUG -Wall -Wextra -Wpedantic -Werror -DRENDERER_VALIDATION=%RENDERER_VALIDATION%
 set CFLAGS=%CFLAGS% -I./external -I./include -I./src
@@ -52,6 +54,15 @@ if not "%TARGET%"=="app" if not "%TARGET%"=="test" (
 
 call :require clang "Install LLVM/Clang from https://releases.llvm.org and put it on PATH."
 if errorlevel 1 exit /b 1
+call :require curl "curl ships with Windows 10+. Install Git for Windows or your distro's curl package."
+if errorlevel 1 exit /b 1
+
+call :deps_stb
+if errorlevel 1 exit /b 1
+call :deps_freetype
+if errorlevel 1 exit /b 1
+set CFLAGS=%CFLAGS% -Iexternal/freetype/include/freetype2
+set LDLIBS=%LDLIBS% external/freetype-build/Debug/freetyped.lib
 
 if "%GFX_BACKEND%"=="d3d11" (
     set CFLAGS=!CFLAGS! -DGFX_BACKEND_D3D11
@@ -96,6 +107,37 @@ if errorlevel 1 (
     echo Missing required tool '%1'. %~2 1>&2
     exit /b 1
 )
+exit /b 0
+
+rem --- stb_image (single header) ----------------------------------------------
+:deps_stb
+if exist external\stb\stb_image.h exit /b 0
+echo DEPS stb_image (%STB_IMAGE_COMMIT%)
+if not exist external\stb mkdir external\stb
+curl -sSfL -o external\stb\stb_image.h "https://raw.githubusercontent.com/nothings/stb/%STB_IMAGE_COMMIT%/stb_image.h" || exit /b 1
+exit /b 0
+
+rem --- FreeType, built from source with the app's CRT (/MDd) -----------------
+:deps_freetype
+if exist external\freetype-build\Debug\freetyped.lib exit /b 0
+call :require cmake "Install CMake from https://cmake.org/download/ and add it to PATH."
+if errorlevel 1 exit /b 1
+echo DEPS FreeType v%FREETYPE_VERSION% (building from source)
+if not exist external\deps mkdir external\deps
+powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://download.savannah.gnu.org/releases/freetype/freetype-%FREETYPE_VERSION%.tar.gz' -OutFile 'external/deps/freetype.tar.gz'" || exit /b 1
+tar -xzf external\deps\freetype.tar.gz -C external\deps || exit /b 1
+if exist external\freetype-src rmdir /s /q external\freetype-src
+move "external\deps\freetype-%FREETYPE_VERSION%" external\freetype-src >nul || exit /b 1
+cmake -S external\freetype-src -B external\freetype-build -G "Visual Studio 17 2022" -A x64 ^
+    -DCMAKE_INSTALL_PREFIX="%CD%\external\freetype" ^
+    -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDebugDLL ^
+    -DBUILD_SHARED_LIBS=OFF ^
+    -DFT_DISABLE_ZLIB=TRUE ^
+    -DFT_DISABLE_BZIP2=TRUE ^
+    -DFT_DISABLE_PNG=TRUE ^
+    -DFT_DISABLE_HARFBUZZ=TRUE ^
+    -DFT_DISABLE_BROTLI=TRUE || exit /b 1
+cmake --build external\freetype-build --config Debug --target install --parallel || exit /b 1
 exit /b 0
 
 rem --- Vulkan-Headers (headers only) -----------------------------------------
