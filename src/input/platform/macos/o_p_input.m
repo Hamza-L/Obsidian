@@ -1,7 +1,7 @@
 #import <AppKit/AppKit.h>
 #import <Carbon/Carbon.h>
 
-#include "input/i_input_internal.h"
+#include "input/o_input_internal.h"
 #include "o_log.h"
 
 #define VIRTUAL_KEY_CODE_COUNT 128

@@ -22,8 +22,8 @@
 
 #include "o_log.h"
 
-#include "renderer/backend/vulkan/platform/win32/r_b_p_swapchain.h"
-#include "renderer/backend/vulkan/r_b_vulkan_limits.h"
+#include "renderer/backend/vulkan/platform/win32/o_b_p_swapchain.h"
+#include "renderer/backend/vulkan/o_b_vulkan_limits.h"
 
 #include <stdlib.h>
 #include <string.h>

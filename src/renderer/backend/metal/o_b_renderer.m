@@ -1,7 +1,7 @@
 #include "o_log.h"
 #include "o_memory.h"
 
-#include "renderer/backend/metal/r_b_renderer_internal.h"
+#include "renderer/backend/metal/o_b_renderer_internal.h"
 
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>

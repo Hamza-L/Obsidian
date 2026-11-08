@@ -1,5 +1,5 @@
-#ifndef R_B_RENDERER_INTERNAL_H
-#define R_B_RENDERER_INTERNAL_H
+#ifndef O_B_RENDERER_INTERNAL_H
+#define O_B_RENDERER_INTERNAL_H
 #include "o_renderer.h"
 #include "o_memory.h"
 
@@ -40,4 +40,4 @@ struct OImageSlot{
     void * image;
 };
 
-#endif //R_B_RENDERER_INTERNAL_H
+#endif //O_B_RENDERER_INTERNAL_H

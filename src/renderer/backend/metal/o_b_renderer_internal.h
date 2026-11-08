@@ -1,12 +1,12 @@
-#ifndef R_B_RENDERER_INTERNAL_H
-#define R_B_RENDERER_INTERNAL_H
+#ifndef O_B_RENDERER_INTERNAL_H
+#define O_B_RENDERER_INTERNAL_H
 
 #include "o_renderer.h"
 #include "o_memory.h"
 
 #include "renderer/o_renderer_internal.h"
-#include "renderer/backend/metal/r_b_metal_limits.h"
-#include "renderer/backend/metal/r_b_gpu_types.h"
+#include "renderer/backend/metal/o_b_metal_limits.h"
+#include "renderer/backend/metal/o_b_gpu_types.h"
 
 #import <AppKit/AppKit.h>
 #import <Metal/Metal.h>
@@ -74,4 +74,4 @@ struct ORenderer{
     size_t frameArenaEnd;
 };
 
-#endif //R_B_RENDERER_INTERNAL_H
+#endif //O_B_RENDERER_INTERNAL_H

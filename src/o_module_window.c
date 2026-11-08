@@ -1,5 +1,5 @@
 #if defined(__APPLE__)
-#include "window/platform/macos/w_p_window.m"
+#include "window/platform/macos/o_p_window.m"
 #elif defined(_WIN32)
-#include "window/platform/win32/w_p_window.c"
+#include "window/platform/win32/o_p_window.c"
 #endif

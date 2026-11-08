@@ -1,12 +1,12 @@
-#ifndef R_B_RENDERER_INTERNAL_H
-#define R_B_RENDERER_INTERNAL_H
+#ifndef O_B_RENDERER_INTERNAL_H
+#define O_B_RENDERER_INTERNAL_H
 #include "o_renderer.h"
 #include "o_memory.h"
 
 #include "renderer/o_renderer_internal.h"
-#include "renderer/backend/vulkan/r_b_vulkan_loader.h"
-#include "renderer/backend/vulkan/r_b_vulkan_limits.h"
-#include "renderer/backend/vulkan/platform/win32/r_b_p_swapchain.h"
+#include "renderer/backend/vulkan/o_b_vulkan_loader.h"
+#include "renderer/backend/vulkan/o_b_vulkan_limits.h"
+#include "renderer/backend/vulkan/platform/win32/o_b_p_swapchain.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -61,4 +61,4 @@ struct OImageSlot{
     VkImageView imageView;
 };
 
-#endif //R_B_RENDERER_INTERNAL_H
+#endif //O_B_RENDERER_INTERNAL_H

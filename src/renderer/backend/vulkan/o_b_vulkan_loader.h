@@ -1,5 +1,5 @@
-#ifndef R_B_VULKAN_LOADER_H
-#define R_B_VULKAN_LOADER_H
+#ifndef O_B_VULKAN_LOADER_H
+#define O_B_VULKAN_LOADER_H
 
 #define VK_NO_PROTOTYPES
 #define VK_USE_PLATFORM_WIN32_KHR
@@ -127,4 +127,4 @@ bool vk_load_instance_fns(VkInstance instance);
 bool vk_load_device_fns(VkDevice device);
 bool vk_load_lib(HMODULE* vulkan_lib_handle);
 
-#endif //R_B_VULKAN_LOADER_H
+#endif //O_B_VULKAN_LOADER_H

@@ -1,5 +1,5 @@
-#ifndef R_B_GPU_TYPES_H
-#define R_B_GPU_TYPES_H
+#ifndef O_B_GPU_TYPES_H
+#define O_B_GPU_TYPES_H
 
 #ifdef __METAL_VERSION__
   #define GPU_PTR(T)   device const T*
@@ -9,4 +9,4 @@
   #define GPU_TEX      MTLResourceID
 #endif
 
-#endif //R_B_GPU_TYPES_H
+#endif //O_B_GPU_TYPES_H
