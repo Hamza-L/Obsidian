@@ -25,6 +25,8 @@
 #include "renderer/backend/vulkan/platform/win32/o_b_p_swapchain.h"
 #include "renderer/backend/vulkan/o_b_vulkan_limits.h"
 
+#include "core/o_types.h"
+
 #include <stdlib.h>
 #include <string.h>
 
@@ -140,7 +142,7 @@ struct Swapchain {
     VkSemaphore copySemaphore;
     ID3D11Fence *renderFence;
     ID3D11Fence *copyFence;
-    uint64_t presentCount;
+    u64 presentCount;
 
     /* Frame pacing */
     HANDLE frameLatencyWaitable;
@@ -152,7 +154,7 @@ struct Swapchain {
     VkPhysicalDeviceMemoryProperties memProps;
 };
 
-static bool get_window_client_size(void *hwnd, int32_t *width, int32_t *height) {
+static bool get_window_client_size(void *hwnd, i32 *width, i32 *height) {
     RECT r = {0};
     if (!hwnd || !GetClientRect(hwnd, &r)) return false;
     *width = r.right - r.left;
@@ -161,8 +163,8 @@ static bool get_window_client_size(void *hwnd, int32_t *width, int32_t *height) 
     return true;
 }
 
-static uint32_t find_memory_type(Swapchain *sc, uint32_t type_filter, VkMemoryPropertyFlags properties) {
-    for (uint32_t i = 0; i < sc->memProps.memoryTypeCount; i++) {
+static u32 find_memory_type(Swapchain *sc, u32 type_filter, VkMemoryPropertyFlags properties) {
+    for (u32 i = 0; i < sc->memProps.memoryTypeCount; i++) {
         if ((type_filter & (1u << i)) &&
             (sc->memProps.memoryTypes[i].propertyFlags & properties) == properties) {
             return i;
@@ -172,7 +174,7 @@ static uint32_t find_memory_type(Swapchain *sc, uint32_t type_filter, VkMemoryPr
 }
 
 static void release_vk_images(Swapchain *sc) {
-    for (uint32_t i = 0; i < SWAPCHAIN_IMAGE_COUNT; i++) {
+    for (u32 i = 0; i < SWAPCHAIN_IMAGE_COUNT; i++) {
         if (sc->vkMemories[i] != VK_NULL_HANDLE) {
             vkFreeMemory(sc->device, sc->vkMemories[i], NULL);
             sc->vkMemories[i] = VK_NULL_HANDLE;
@@ -218,7 +220,7 @@ static bool create_dxgi_buffers_and_import_to_vulkan(Swapchain *sc) {
         ID3D11Device_GetImmediateContext(sc->d3dDevice, &sc->d3dContext);
     }
 
-    for (uint32_t i = 0; i < SWAPCHAIN_IMAGE_COUNT; i++) {
+    for (u32 i = 0; i < SWAPCHAIN_IMAGE_COUNT; i++) {
         /* Create a shared D3D11 texture that Vulkan can import */
         D3D11_TEXTURE2D_DESC tex_desc;
         memset(&tex_desc, 0, sizeof(tex_desc));
@@ -312,7 +314,7 @@ static bool create_dxgi_buffers_and_import_to_vulkan(Swapchain *sc) {
         vkGetImageMemoryRequirements(sc->device, sc->images[i], &mem_req);
 
         /* Find a compatible memory type from what the handle supports */
-        uint32_t mem_type = find_memory_type(
+        u32 mem_type = find_memory_type(
             sc,
             handle_props.memoryTypeBits & mem_req.memoryTypeBits,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
@@ -519,11 +521,11 @@ static bool dxgi_init(void *native_window_handle, Swapchain *sc) {
         return false;
     }
 
-    int32_t fb_w = 0, fb_h = 0;
+    i32 fb_w = 0, fb_h = 0;
     if(!get_window_client_size(hwnd, &fb_w, &fb_h)) return false;
 
-    sc->extent.width = (uint32_t)fb_w;
-    sc->extent.height = (uint32_t)fb_h;
+    sc->extent.width = (u32)fb_w;
+    sc->extent.height = (u32)fb_h;
     sc->format = VK_FORMAT_B8G8R8A8_UNORM;
 
     /* ── Create D3D11 device (minimal, for DXGI ownership) ──────────── */
@@ -725,7 +727,7 @@ void swapchain_destroy(Swapchain *sc) {
     free(sc);
 }
 
-bool swapchain_resize(Swapchain *sc, uint32_t width, uint32_t height) {
+bool swapchain_resize(Swapchain *sc, u32 width, u32 height) {
     if (sc->lost || width == 0 || height == 0) return false;
 
     vkDeviceWaitIdle(sc->device);
@@ -733,8 +735,8 @@ bool swapchain_resize(Swapchain *sc, uint32_t width, uint32_t height) {
 
     release_vk_images(sc);
 
-    sc->extent.width = (uint32_t)width;
-    sc->extent.height = (uint32_t)height;
+    sc->extent.width = (u32)width;
+    sc->extent.height = (u32)height;
 
     HRESULT hr = IDXGISwapChain1_ResizeBuffers(
         sc->dxgiSwapchain,
@@ -771,13 +773,13 @@ bool swapchain_is_lost(const Swapchain *sc) {
 }
 
 SwapchainFrameSync swapchain_frame_sync(const Swapchain *sc) {
-    uint64_t frame = sc->presentCount;
+    u64 frame = sc->presentCount;
     return (SwapchainFrameSync){
         .waitSemaphore = sc->copySemaphore,
         .waitValue = frame >= SWAPCHAIN_IMAGE_COUNT ? frame - SWAPCHAIN_IMAGE_COUNT + 1 : 0,
         .signalSemaphore = sc->renderSemaphore,
         .signalValue = frame + 1,
-        .imageIndex = (uint32_t)(frame % SWAPCHAIN_IMAGE_COUNT),
+        .imageIndex = (u32)(frame % SWAPCHAIN_IMAGE_COUNT),
     };
 }
 
@@ -786,9 +788,9 @@ SwapchainFrameSync swapchain_frame_sync(const Swapchain *sc) {
 SwapchainPresentResult swapchain_present(Swapchain *sc) {
     swapchain_wait_for_frame(sc);
 
-    uint64_t frame = sc->presentCount;
-    uint32_t index = (uint32_t)(frame % SWAPCHAIN_IMAGE_COUNT);
-    uint64_t done = frame + 1;
+    u64 frame = sc->presentCount;
+    u32 index = (u32)(frame % SWAPCHAIN_IMAGE_COUNT);
+    u64 done = frame + 1;
     bool copied = false;
 
     HRESULT hr = ID3D11DeviceContext4_Wait(sc->d3dContext4, sc->renderFence, done);

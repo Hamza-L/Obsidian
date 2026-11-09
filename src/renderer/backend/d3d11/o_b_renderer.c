@@ -2,6 +2,8 @@
 
 #include "renderer/backend/d3d11/o_b_renderer_internal.h"
 
+#include "core/o_types.h"
+
 #include <d3dcompiler.h>
 #include <string.h>
 
@@ -54,9 +56,9 @@ static ID3DBlob *compile_hlsl(const char *entry, const char *target) {
 static bool create_triangle_pipeline(ORenderer *renderer) {
     ID3DBlob *vs = compile_hlsl("vs_main", "vs_5_0");
     ID3DBlob *ps = compile_hlsl("ps_main", "ps_5_0");
-    bool ok = vs && ps &&
-        SUCCEEDED(ID3D11Device_CreateVertexShader(renderer->device, ID3D10Blob_GetBufferPointer(vs), ID3D10Blob_GetBufferSize(vs), NULL, &renderer->triangleVS)) &&
-        SUCCEEDED(ID3D11Device_CreatePixelShader(renderer->device, ID3D10Blob_GetBufferPointer(ps), ID3D10Blob_GetBufferSize(ps), NULL, &renderer->trianglePS));
+    bool ok = vs && ps;
+    ok &= SUCCEEDED(ID3D11Device_CreateVertexShader(renderer->device, ID3D10Blob_GetBufferPointer(vs), ID3D10Blob_GetBufferSize(vs), NULL, &renderer->triangleVS));
+    ok &= SUCCEEDED(ID3D11Device_CreatePixelShader(renderer->device, ID3D10Blob_GetBufferPointer(ps), ID3D10Blob_GetBufferSize(ps), NULL, &renderer->trianglePS));
     if (vs) ID3D10Blob_Release(vs);
     if (ps) ID3D10Blob_Release(ps);
     if (!ok) return false;
@@ -113,11 +115,11 @@ ORenderer *renderer_create(ORendererDesc desc) {
 void renderer_destroy(ORenderer *renderer) {
     if (!renderer) return;
 
-    for (uint32_t i = 0; i < MAX_LAYER_COUNT; i++) {
+    for (u32 i = 0; i < MAX_LAYER_COUNT; i++) {
         if (renderer->layerList.data[i].swapchain) IDXGISwapChain1_Release(renderer->layerList.data[i].swapchain);
     }
     // Images are not tracked individually here: release the ones the app never destroyed.
-    for (uint32_t id = 1; renderer->imagePool && id <= MAX_IMAGE_COUNT; id++) {
+    for (u32 id = 1; renderer->imagePool && id <= MAX_IMAGE_COUNT; id++) {
         OImageSlot *slot = memory_pool_item_at(renderer->imagePool, id);
         if (!slot) break;
         if (slot->rtv) ID3D11RenderTargetView_Release(slot->rtv);
@@ -145,7 +147,7 @@ bool renderer_begin_frame(ORenderer *renderer) {
 }
 
 void renderer_end_frame_and_present(ORenderer *renderer) {
-    for (uint32_t i = 0; i < MAX_LAYER_COUNT; i++) {
+    for (u32 i = 0; i < MAX_LAYER_COUNT; i++) {
         IDXGISwapChain1 *swapchain = renderer->layerList.data[i].swapchain;
         if (!swapchain || !(renderer->presentMask & (1u << i))) continue;
 
@@ -163,8 +165,8 @@ void renderer_begin_render(ORenderer *renderer, ORenderTargets targets) {
     }
 
     ID3D11RenderTargetView *rtvs[O_MAX_COLOR_ATTACHMENTS] = {0};
-    uint32_t width = 0, height = 0;
-    for (uint32_t i = 0; i < targets.color_count; i++) {
+    u32 width = 0, height = 0;
+    for (u32 i = 0; i < targets.color_count; i++) {
         OImage image = targets.colors[i].image;
         OImageSlot *slot = memory_pool_item_get(renderer->imagePool, (MHandle){.id = image.id, .age = image.age});
         if (!slot || !slot->rtv) {
@@ -265,8 +267,8 @@ void renderer_image_destroy(ORenderer *renderer, OImage image) {
 }
 
 OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle, OSurfaceDesc desc) {
-    uint32_t index = MAX_LAYER_COUNT;
-    for (uint32_t i = 0; i < MAX_LAYER_COUNT; i++) {
+    u32 index = MAX_LAYER_COUNT;
+    for (u32 i = 0; i < MAX_LAYER_COUNT; i++) {
         if (!renderer->layerList.data[i].swapchain) { index = i; break; }
     }
     if (index == MAX_LAYER_COUNT) {
@@ -300,7 +302,7 @@ void renderer_surface_destroy(ORenderer *renderer, OSurface surface) {
         LOG_WARN("attempting to destroy an already destroyed surface");
         return;
     }
-    uint32_t index = surface.id - 1;
+    u32 index = surface.id - 1;
     if (renderer->layerList.data[index].swapchain) IDXGISwapChain1_Release(renderer->layerList.data[index].swapchain);
     renderer->layerList.data[index].swapchain = NULL;
     renderer->layerList.data[index].age++;
@@ -319,7 +321,7 @@ void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) 
         return;
     }
 
-    uint32_t index = surface.id - 1;
+    u32 index = surface.id - 1;
     ID3D11Texture2D *backBuffer = NULL;
     HRESULT hr = IDXGISwapChain1_GetBuffer(renderer->layerList.data[index].swapchain, 0, &IID_ID3D11Texture2D, (void **)&backBuffer);
     if (FAILED(hr)) {

@@ -5,6 +5,8 @@
 
 #include "o_log.h"
 #include "o_window.h"
+#include "core/o_types.h"
+#include "memory/o_memory_internal.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -14,16 +16,19 @@
 #define MAX_TITLE_LEN 64
 #define TITLEBAR_HEIGHT 28
 
+static i32 g_xOffset;
+static i32 g_yOffset;
+
 static struct {
     HINSTANCE hinstance;
     bool initialized;
-    uint32_t window_count;
     OWindow *windows;
+    u32 window_count;
 } g_app;
 
 typedef struct {
     const char title[MAX_TITLE_LEN];
-    uint32_t height;
+    u32 height;
 } OTitleBar;
 
 struct OWindow {
@@ -31,6 +36,14 @@ struct OWindow {
     OWindowCallbacks callbacks;
     OTitleBar titlebar;
     bool open;
+
+    struct {
+        void *data;
+        i32 width;
+        i32 height;
+        HDC dc;
+        BITMAPINFO info;
+    } bitmap;
 
     void *userdata;
     OWindow *next;
@@ -55,7 +68,7 @@ LRESULT hit_test_resize_border(HWND hwnd, LPARAM lparam) {
     return hits[row][col];
 }
 
-static void set_content_size(HWND hwnd, int32_t width, int32_t height) {
+static void set_content_size(HWND hwnd, i32 width, i32 height) {
     RECT r = {0, 0, width, height};
     const DWORD style = (DWORD)GetWindowLongPtrW(hwnd, GWL_STYLE);
     const DWORD ex_style = (DWORD)GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
@@ -63,52 +76,119 @@ static void set_content_size(HWND hwnd, int32_t width, int32_t height) {
     SetWindowPos(hwnd, NULL, 0, 0, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOMOVE | SWP_NOACTIVATE);
 }
 
+static void color_bitmap(void *data, i32 width, i32 height, i32 offsetX, i32 offsetY) {
+    u8 *row = data;
+    u32 pitch = width * sizeof(u8) * 4;
+    for (i32 i = 0; i < height; ++i) {
+        u8 *rgba = row;
+        for (i32 j = 0; j < width; ++j) {
+            *rgba = ((float)j) * 255 + offsetX;   ++rgba;
+            *rgba = (1.0 - ((float)(i + j) / (height + width))) * 255;   ++rgba;
+            *rgba = ((float)i) * 255 + offsetY; ++rgba;
+            *rgba = 255;   ++rgba;
+        }
+        row += pitch;
+    }
+}
+
+static void window_create_bitmap(OWindow* w, i32 width, i32 height) {
+    if (w->bitmap.data) {
+        m_release(w->bitmap.data, 0);
+    }
+
+    BITMAPINFO bmapInfo = {0};
+    bmapInfo.bmiHeader.biSize = sizeof(bmapInfo.bmiHeader);
+    bmapInfo.bmiHeader.biWidth = width;
+    bmapInfo.bmiHeader.biHeight = -height; //negative to make bitmap use top-left is 0,0
+    bmapInfo.bmiHeader.biPlanes = 1; //default to 1
+    bmapInfo.bmiHeader.biBitCount = 32;
+    bmapInfo.bmiHeader.biCompression = BI_RGB;
+
+    if(!w->bitmap.dc) w->bitmap.dc = CreateCompatibleDC(0);
+
+    w->bitmap.info = bmapInfo;
+    w->bitmap.width = width;
+    w->bitmap.height = height;
+
+    // NOTE(casey) Thank you to Chris Hecker of Spy Party Fame
+    // for clarifying the deal with StretchDIBits and BitBlt!
+    // no more DC for us
+
+    size_t dataSize = width * height * sizeof(u8) * 4;
+    w->bitmap.data = m_reserve(dataSize);
+    m_commit(w->bitmap.data, dataSize);
+}
+
+static void update_window(OWindow *w, HDC dc, i32 x, i32 y, i32 width, i32 height) {
+    StretchDIBits(dc,
+                  x, y, width, height,
+                  0, 0, w->bitmap.width, w->bitmap.height, // copy from exact rect size to exact rect size
+                  w->bitmap.data,
+                  &w->bitmap.info,
+                  DIB_RGB_COLORS, //data per pixel
+                  SRCCOPY); //raster op code
+}
+
 static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     OWindow *w = (OWindow *)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
 
     switch (msg) {
     case WM_NCCREATE: {
-        OWindow *w = ((CREATESTRUCTW *)lparam)->lpCreateParams;
-        SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)w);
-        if(w) w->hwnd = hwnd;
+        OWindow *window = ((CREATESTRUCTW *)lparam)->lpCreateParams;
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)window);
+        if(window) window->hwnd = hwnd;
         g_app.window_count++;
         return DefWindowProcW(hwnd, msg, wparam, lparam);
-    }
+    } break;
 
-    case WM_CLOSE:
+    case WM_CLOSE: {
         DestroyWindow(hwnd);
         return 0;
+    } break;
 
-    case WM_PAINT:
-        return DefWindowProcW(hwnd, msg, wparam, lparam);
+    case WM_PAINT: {
+        i32 x = 0, y = 0, width = 0, height = 0;
+        window_get_content_size(w, &x, &y, &width, &height);
+        PAINTSTRUCT paint;
+        HDC dc = BeginPaint(hwnd, &paint);
+        update_window(w, dc, x, y, width, height);
+        EndPaint(hwnd, &paint);
+    } break;
 
-    case WM_DESTROY:
-        if (!w) return 0;
+    case WM_DESTROY: {
         w->open = false;
         g_app.window_count--;
         if (w->callbacks.on_close) {
             w->callbacks.on_close(w, w->userdata);
         }
-        return 0;
 
-    case WM_NCDESTROY:
+        if(g_app.window_count == 0) PostQuitMessage(0);
+    } break;
+
+    case WM_NCDESTROY: {
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)0);
         return DefWindowProcW(hwnd, msg, wparam, lparam);
-
-    case WM_SIZE:
-        if (!w) return 0;
-        if (w->callbacks.on_resize) w->callbacks.on_resize(w, LOWORD(lparam), HIWORD(lparam), w->userdata);
-        if (w->callbacks.on_refresh) w->callbacks.on_refresh(w, w->userdata);
-        return 0;
-
-    case WM_MOVE:
-        if (!w) return 0;
-        if (w->callbacks.on_move) w->callbacks.on_move(w, (int16_t)LOWORD(lparam), (int16_t)HIWORD(lparam), w->userdata);
-        return 0;
-
-    default:
-        return DefWindowProcW(hwnd, msg, wparam, lparam);
     }
+
+    case WM_SIZE: {
+        if (!w) return 0;
+        i32 width = LOWORD(lparam), height = HIWORD(lparam);
+        if (w->callbacks.on_resize) w->callbacks.on_resize(w, width, height, w->userdata);
+        if (w->callbacks.on_refresh) w->callbacks.on_refresh(w, w->userdata);
+        if (w->bitmap.width != width && w->bitmap.height != height) {
+            window_create_bitmap(w, width, height);
+        }
+        color_bitmap(w->bitmap.data, w->bitmap.width, w->bitmap.height, g_xOffset, g_yOffset);
+        g_xOffset++;
+        g_yOffset++;
+    } break;
+
+    case WM_MOVE: {
+        if (w && w->callbacks.on_move) w->callbacks.on_move(w, (i16)LOWORD(lparam), (i16)HIWORD(lparam), w->userdata);
+    } break;
+    }
+
+    return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
 static bool app_init(void) {
@@ -118,12 +198,11 @@ static bool app_init(void) {
     g_app.hinstance = GetModuleHandleW(NULL);
 
     WNDCLASSEXW wc = {
-        .cbSize = sizeof wc,
+        .cbSize = sizeof(WNDCLASSEXW),
         .style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC,
         .lpfnWndProc = wndproc,
         .hInstance = g_app.hinstance,
         .hCursor = LoadCursorW(NULL, IDC_ARROW),
-        .hbrBackground = NULL,
         .lpszClassName = WINDOW_CLASS_NAME,
     };
     g_app.initialized = RegisterClassExW(&wc) != 0;
@@ -135,22 +214,38 @@ static bool app_init(void) {
 bool window_poll_events(void) {
     if (!g_app.initialized) return false;
 
-    MSG msg;
+    MSG msg = {0};
     while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
+
     for (OWindow *w = g_app.windows; w; w = w->next) {
+        if (w->bitmap.data) {
+            color_bitmap(w->bitmap.data, w->bitmap.width, w->bitmap.height, g_xOffset, g_yOffset);
+
+            HDC dc = GetDC(w->hwnd);
+            i32 x = 0, y = 0, width = 0, height = 0;
+            window_get_content_size(w, &x, &y, &width, &height);
+            update_window(w, dc, x, y, width, height);
+            ReleaseDC(w->hwnd, dc);
+        }
+
         if (w->hwnd && w->callbacks.on_refresh) w->callbacks.on_refresh(w, w->userdata);
     }
+
+    g_xOffset++;
+    g_yOffset++;
+
     return g_app.window_count > 0;
 }
 
 OWindow *window_create(OWindowDesc desc) {
     if (desc.width <= 0 || desc.height <= 0) {
-        LOG_ERROR("window_create: invalid desc");
+        LOG_ERROR("window_create: invalid desc. both width and height must be defined");
         return NULL;
     }
+
     if (!app_init()) return NULL;
 
     OWindow *window = calloc(1, sizeof *window);
@@ -159,11 +254,6 @@ OWindow *window_create(OWindowDesc desc) {
         return NULL;
     }
 
-    window->open = true;
-
-    memcpy((void*)window->titlebar.title, desc.title, min(strlen(desc.title), MAX_TITLE_LEN));
-    window->titlebar.height = TITLEBAR_HEIGHT;
-
     DWORD style = WS_POPUP;
     if (!desc.undecorated) {
         style |= WS_CAPTION | WS_OVERLAPPED | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_THICKFRAME;
@@ -171,7 +261,6 @@ OWindow *window_create(OWindowDesc desc) {
 
     wchar_t title[256];
     to_wide(desc.title, title, 256);
-
     HWND hwnd = CreateWindowExW(WS_EX_APPWINDOW, WINDOW_CLASS_NAME, title, style, desc.x, desc.y,
                                 desc.width, desc.height, NULL, NULL, g_app.hinstance, window);
     if (!hwnd) {
@@ -179,11 +268,11 @@ OWindow *window_create(OWindowDesc desc) {
         free(window);
         return NULL;
     }
+
     set_content_size(hwnd, desc.width, desc.height);
 
     BOOL dark = TRUE;
     DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof dark);
-
     if (desc.undecorated) {
         MARGINS margins = {-1, -1, -1, -1};
         DwmExtendFrameIntoClientArea(hwnd, &margins);
@@ -195,8 +284,15 @@ OWindow *window_create(OWindowDesc desc) {
     //     SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
     // }
 
+    memcpy((void*)window->titlebar.title, desc.title, min(strlen(desc.title), MAX_TITLE_LEN));
+    window->titlebar.height = TITLEBAR_HEIGHT;
+    window->open = true;
     window->next = g_app.windows;
     g_app.windows = window;
+
+    i32 width = 0, height = 0;
+    window_get_content_size(window, NULL, NULL, &width, &height);
+    window_create_bitmap(window, width, height);
 
     window_show(window);
     return window;
@@ -238,11 +334,11 @@ void window_set_title(OWindow *window, const char *title) {
     SetWindowTextW(window->hwnd, wide);
 }
 
-void window_set_position(OWindow *window, int32_t x, int32_t y) {
+void window_set_position(OWindow *window, i32 x, i32 y) {
     if (window && window->hwnd) SetWindowPos(window->hwnd, NULL, x, y, 0, 0, SWP_NOZORDER | SWP_NOSIZE | SWP_NOACTIVATE);
 }
 
-void window_set_size(OWindow *window, int32_t width, int32_t height) {
+void window_set_size(OWindow *window, i32 width, i32 height) {
     if (window && window->hwnd && width > 0 && height > 0) set_content_size(window->hwnd, width, height);
 }
 
@@ -252,16 +348,18 @@ void window_set_callbacks(OWindow *window, OWindowCallbacks callbacks, void *use
     window->userdata = userdata;
 }
 
-bool window_get_content_size(const OWindow *window, int32_t *out_width, int32_t *out_height) {
-    RECT r;
+bool window_get_content_size(const OWindow *window, int32_t *x, int32_t *y, int32_t *width, int32_t *height) {
+    RECT r = {0};
     if (!window || !window->hwnd || !GetClientRect(window->hwnd, &r)) return false;
-    if (out_width) *out_width = r.right - r.left;
-    if (out_height) *out_height = r.bottom - r.top;
+    if (x) *x = r.left;
+    if (y) *y = r.top;
+    if (width) *width = r.right - r.left;
+    if (height) *height = r.bottom - r.top;
     return true;
 }
 
-bool window_get_pixel_size(const OWindow *window, int32_t *out_width, int32_t *out_height) {
-    return window_get_content_size(window, out_width, out_height);
+bool window_get_pixel_size(const OWindow *window, int32_t *x, int32_t *y, int32_t *width, int32_t *height) {
+    return window_get_content_size(window, x, y, width, height );
 }
 
 bool window_is_open(const OWindow *window) {
@@ -270,4 +368,9 @@ bool window_is_open(const OWindow *window) {
 
 void *window_native_handle(const OWindow *window) {
     return window ? window->hwnd : NULL;
+}
+
+void *window_get_bitmap(OWindow *window, int32_t *x, int32_t *y, int32_t *width, int32_t *height) {
+    window_get_content_size(window, x, y, width, height);
+    return window->bitmap.data;
 }

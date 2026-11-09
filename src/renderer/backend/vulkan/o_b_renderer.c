@@ -1,11 +1,12 @@
 #include "o_log.h"
 
 #include "renderer/backend/vulkan/o_b_renderer_internal.h"
+#include "core/o_types.h"
 
 #include <stdlib.h>
 #include <string.h>
 
-#define COUNT_OF(array) ((uint32_t)(sizeof(array) / sizeof((array)[0])))
+#define COUNT_OF(array) ((u32)(sizeof(array) / sizeof((array)[0])))
 
 static const char *const k_instance_extensions[] = {
     VK_KHR_SURFACE_EXTENSION_NAME,
@@ -28,7 +29,7 @@ static bool create_fences(VkDevice device, VkFence *fences, size_t count) {
     VkFenceCreateInfo fci = {0};
     fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-    for (uint32_t i = 0; i < count; i++) {
+    for (u32 i = 0; i < count; i++) {
         VkResult vr = vkCreateFence(device, &fci, NULL, &fences[i]);
         if (vr != VK_SUCCESS) {
             LOG_ERROR("vkCreateFence[%u] failed (vr=%d)", (unsigned)i, (int)vr);
@@ -55,7 +56,7 @@ static bool create_command_buffers(VkDevice device, VkCommandPool cmdPool, VkCom
     return true;
 }
 
-static bool create_command_pool(VkDevice device, uint32_t queueFamilyIndex, VkCommandPool* cmdPool) {
+static bool create_command_pool(VkDevice device, u32 queueFamilyIndex, VkCommandPool* cmdPool) {
     VkCommandPoolCreateInfo cpci;
     memset(&cpci, 0, sizeof(cpci));
     cpci.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -70,18 +71,18 @@ static bool create_command_pool(VkDevice device, uint32_t queueFamilyIndex, VkCo
     return true;
 }
 
-static bool device_has_extensions(VkPhysicalDevice device, const char *deviceName, const char *const *names, uint32_t count) {
+static bool device_has_extensions(VkPhysicalDevice device, const char *deviceName, const char *const *names, u32 count) {
     if (count == 0) return true;
-    uint32_t available = 0;
+    u32 available = 0;
     if (vkEnumerateDeviceExtensionProperties(device, NULL, &available, NULL) != VK_SUCCESS) return false;
     VkExtensionProperties *props = calloc(available, sizeof *props);
     if (!props) return false;
     vkEnumerateDeviceExtensionProperties(device, NULL, &available, props);
 
     bool all_found = true;
-    for (uint32_t i = 0; i < count; i++) {
+    for (u32 i = 0; i < count; i++) {
         bool found = false;
-        for (uint32_t j = 0; j < available && !found; j++) found = strcmp(props[j].extensionName, names[i]) == 0;
+        for (u32 j = 0; j < available && !found; j++) found = strcmp(props[j].extensionName, names[i]) == 0;
         if (!found) LOG_WARN("%s: missing device extension %s", deviceName, names[i]);
         all_found = all_found && found;
     }
@@ -89,18 +90,18 @@ static bool device_has_extensions(VkPhysicalDevice device, const char *deviceNam
     return all_found;
 }
 
-static bool instance_has_extensions(const char *const *names, uint32_t count) {
+static bool instance_has_extensions(const char *const *names, u32 count) {
     if (count == 0) return true;
-    uint32_t available = 0;
+    u32 available = 0;
     if (vkEnumerateInstanceExtensionProperties(NULL, &available, NULL) != VK_SUCCESS) return false;
     VkExtensionProperties *props = calloc(available, sizeof *props);
     if (!props) return false;
     vkEnumerateInstanceExtensionProperties(NULL, &available, props);
 
     bool all_found = true;
-    for (uint32_t i = 0; i < count && all_found; i++) {
+    for (u32 i = 0; i < count && all_found; i++) {
         bool found = false;
-        for (uint32_t j = 0; j < available && !found; j++) found = strcmp(props[j].extensionName, names[i]) == 0;
+        for (u32 j = 0; j < available && !found; j++) found = strcmp(props[j].extensionName, names[i]) == 0;
         all_found = found;
         if (!found) LOG_ERROR("required Vulkan instance extension not available: %s", names[i]);
     }
@@ -157,7 +158,7 @@ static bool device_supports_required_features(VkPhysicalDevice device, const VkP
     };
 
     bool ok = true;
-    for (uint32_t i = 0; i < COUNT_OF(required); i++) {
+    for (u32 i = 0; i < COUNT_OF(required); i++) {
         if (!required[i].supported) {
             LOG_WARN("%s: missing feature %s", props->deviceName, required[i].name);
             ok = false;
@@ -178,10 +179,10 @@ ORenderer *renderer_create(ORendererDesc desc) {
     g_renderer.imagePool = memory_pool_create(sizeof(OImageSlot), MAX_TEXTURE_COUNT);
 
     VkLayerProperties *availLayers = NULL;
-    uint32_t nAvailLayers = 0;
+    u32 nAvailLayers = 0;
 
-    const uint32_t nReqInstanceExts = COUNT_OF(k_instance_extensions);
-    const uint32_t nReqDeviceExts = COUNT_OF(k_device_extensions);
+    const u32 nReqInstanceExts = COUNT_OF(k_instance_extensions);
+    const u32 nReqDeviceExts = COUNT_OF(k_device_extensions);
 
     // load the vulkan dll
     if (!g_renderer.vulkanLib) {
@@ -198,8 +199,8 @@ ORenderer *renderer_create(ORendererDesc desc) {
     }
 
     const char *extensions[32];
-    uint32_t nExt = 0;
-    for (uint32_t i = 0; i < nReqInstanceExts; i++) extensions[nExt++] = k_instance_extensions[i];
+    u32 nExt = 0;
+    for (u32 i = 0; i < nReqInstanceExts; i++) extensions[nExt++] = k_instance_extensions[i];
 
     vkEnumerateInstanceLayerProperties(&nAvailLayers, NULL);
     if (nAvailLayers > 0) {
@@ -211,11 +212,11 @@ ORenderer *renderer_create(ORendererDesc desc) {
 
     /* Best-effort validation support. */
     const char *layers[4];
-    uint32_t nLayers = 0;
+    u32 nLayers = 0;
     if (RENDERER_VALIDATION) {
         const char *val_layer = "VK_LAYER_KHRONOS_validation";
         bool has_val_layer = false;
-        for (uint32_t i = 0; i < nAvailLayers && availLayers; i++) {
+        for (u32 i = 0; i < nAvailLayers && availLayers; i++) {
             if (strcmp(availLayers[i].layerName, val_layer) == 0) {
                 has_val_layer = true;
                 break;
@@ -263,7 +264,7 @@ ORenderer *renderer_create(ORendererDesc desc) {
         return NULL;
     }
 
-    uint32_t npd = 0;
+    u32 npd = 0;
     res = vkEnumeratePhysicalDevices(g_renderer.instance, &npd, NULL);
     if (res != VK_SUCCESS || npd == 0) {
         LOG_ERROR("vkEnumeratePhysicalDevices failed or no devices (vr=%d)", (int)res);
@@ -280,10 +281,10 @@ ORenderer *renderer_create(ORendererDesc desc) {
         return NULL;
     }
 
-    uint32_t graphicsqfi = UINT32_MAX;
-    uint32_t transferqfi = UINT32_MAX;
+    u32 graphicsqfi = UINT32_MAX;
+    u32 transferqfi = UINT32_MAX;
     VkPhysicalDevice physd = VK_NULL_HANDLE;
-    for (uint32_t i = 0; i < npd && i < MAX_PHYS_DEVICES; i++) {
+    for (u32 i = 0; i < npd && i < MAX_PHYS_DEVICES; i++) {
         VkPhysicalDeviceProperties props;
         vkGetPhysicalDeviceProperties(physDevices[i], &props);
         LOG_INFO("checking GPU: %s (Vulkan %u.%u.%u)", props.deviceName, VK_API_VERSION_MAJOR(props.apiVersion),
@@ -295,7 +296,7 @@ ORenderer *renderer_create(ORendererDesc desc) {
         if (!suitable) continue;
         graphicsqfi = UINT32_MAX;
         transferqfi = UINT32_MAX;
-        uint32_t nqfi = 0;
+        u32 nqfi = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(physDevices[i], &nqfi, NULL);
         if (nqfi == 0) continue;
 
@@ -307,7 +308,7 @@ ORenderer *renderer_create(ORendererDesc desc) {
 
         vkGetPhysicalDeviceQueueFamilyProperties(physDevices[i], &nqfi, qfs);
 
-        for (uint32_t j = 0; j < nqfi; j++) {
+        for (u32 j = 0; j < nqfi; j++) {
             VkQueueFlags flags = qfs[j].queueFlags;
             if ((flags & VK_QUEUE_GRAPHICS_BIT) && graphicsqfi == UINT32_MAX) {
                 graphicsqfi = j;
@@ -440,14 +441,14 @@ void renderer_destroy(ORenderer *renderer) {
 
     if (renderer->device && vkDeviceWaitIdle) vkDeviceWaitIdle(renderer->device);
 
-    for (uint32_t i = 0; i < MAX_LAYER_COUNT; i++) {
+    for (u32 i = 0; i < MAX_LAYER_COUNT; i++) {
         swapchain_destroy(renderer->layerList.data[i].swapchain);
         renderer->layerList.data[i].swapchain = NULL;
         renderer->layerList.data[i].hwnd = NULL;
     }
 
     if (renderer->device) {
-        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             if (renderer->fences[i]) vkDestroyFence(renderer->device, renderer->fences[i], NULL);
         }
         if (renderer->cmdPool) vkDestroyCommandPool(renderer->device, renderer->cmdPool, NULL);
@@ -468,9 +469,9 @@ void renderer_wait_idle(ORenderer *renderer) {
 }
 
 bool renderer_begin_frame(ORenderer *renderer) {
-    uint32_t slot = (uint32_t)(renderer->frameIndex % MAX_FRAMES_IN_FLIGHT);
+    u32 slot = (u32)(renderer->frameIndex % MAX_FRAMES_IN_FLIGHT);
 
-    for (uint32_t i = 0; i < MAX_LAYER_COUNT; i++) {
+    for (u32 i = 0; i < MAX_LAYER_COUNT; i++) {
         swapchain_wait_for_frame(renderer->layerList.data[i].swapchain);
     }
 
@@ -508,16 +509,16 @@ bool renderer_begin_frame(ORenderer *renderer) {
 }
 
 void renderer_end_frame_and_present(ORenderer *renderer) {
-    uint32_t slot = (uint32_t)(renderer->frameIndex % MAX_FRAMES_IN_FLIGHT);
+    u32 slot = (u32)(renderer->frameIndex % MAX_FRAMES_IN_FLIGHT);
 
     VkSemaphore waitSemaphores[MAX_LAYER_COUNT];
-    uint64_t waitValues[MAX_LAYER_COUNT];
+    u64 waitValues[MAX_LAYER_COUNT];
     VkPipelineStageFlags waitStages[MAX_LAYER_COUNT];
     VkSemaphore signalSemaphores[MAX_LAYER_COUNT];
-    uint64_t signalValues[MAX_LAYER_COUNT];
-    uint32_t count = 0;
+    u64 signalValues[MAX_LAYER_COUNT];
+    u32 count = 0;
 
-    for (uint32_t i = 0; i < MAX_LAYER_COUNT; i++) {
+    for (u32 i = 0; i < MAX_LAYER_COUNT; i++) {
         Swapchain *swapchain = renderer->layerList.data[i].swapchain;
         if (!swapchain || swapchain_is_lost(swapchain) || !(renderer->presentMask & (1u << i))) continue;
 
@@ -561,7 +562,7 @@ void renderer_end_frame_and_present(ORenderer *renderer) {
             LOG_ERROR("failed to signal frame slot %u, the device is likely lost", slot);
         }
     } else {
-        for (uint32_t i = 0; i < MAX_LAYER_COUNT; i++) {
+        for (u32 i = 0; i < MAX_LAYER_COUNT; i++) {
             Swapchain *swapchain = renderer->layerList.data[i].swapchain;
             if (!swapchain || swapchain_is_lost(swapchain) || !(renderer->presentMask & (1u << i))) continue;
             swapchain_present(swapchain);
@@ -595,7 +596,7 @@ void renderer_image_destroy(ORenderer *renderer, OImage image) {
 OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle, OSurfaceDesc desc) {
 
     // get the first free layer slot
-    int32_t freeID = 0;
+    i32 freeID = 0;
     for (int i = 0; i < MAX_LAYER_COUNT; i++) {
         if (renderer->layerList.data[i].hwnd == NULL) {
             freeID = i + 1;
@@ -609,7 +610,7 @@ OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle
         return (OSurface){0};
     }
 
-    uint32_t index = freeID - 1;
+    u32 index = freeID - 1;
     Swapchain *swapchain = swapchain_create(native_window_handle, (SwapchainDesc){.device = g_renderer.device, .physDevice = g_renderer.physDevice, .instance = g_renderer.instance, .vsync = desc.present_mode == O_PRESENT_VSYNC});
     if (!swapchain) {
         LOG_ERROR("renderer_surface_create: failed to create swapchain\n");
@@ -618,7 +619,7 @@ OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle
 
     renderer->layerList.data[index].hwnd = native_window_handle;
     renderer->layerList.data[index].swapchain = swapchain;
-    uint32_t currAge = renderer->layerList.data[index].age;
+    u32 currAge = renderer->layerList.data[index].age;
     return (OSurface){.id = freeID, .age = currAge};
 }
 
@@ -628,7 +629,7 @@ void renderer_surface_destroy(ORenderer *renderer, OSurface surface) {
         return;
     }
 
-    uint32_t index = surface.id - 1;
+    u32 index = surface.id - 1;
     swapchain_destroy(renderer->layerList.data[index].swapchain);
     renderer->layerList.data[index].swapchain = NULL;
     renderer->layerList.data[index].hwnd = NULL;

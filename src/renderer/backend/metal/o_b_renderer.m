@@ -3,6 +3,8 @@
 
 #include "renderer/backend/metal/o_b_renderer_internal.h"
 
+#include "core/o_types.h"
+
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #include <dispatch/dispatch.h>
@@ -21,7 +23,7 @@ FrameArenaAlloc frameArena_alloc(ORenderer * renderer, size_t size) {
     }
 
     renderer->frameArenaHead = offset + size;
-    return (FrameArenaAlloc){.offset = offset, .gpu = renderer->frameArena.gpuAddress + offset, .cpu = (uint8_t*)renderer->frameArena.contents + offset};
+    return (FrameArenaAlloc){.offset = offset, .gpu = renderer->frameArena.gpuAddress + offset, .cpu = (u8*)renderer->frameArena.contents + offset};
 }
 
 static MTLPixelFormat mtl_pixel_format(OFormat format) {
@@ -70,7 +72,7 @@ static MTLStoreAction mtl_store_action(OStoreOp store) {
 }
 
 static void drain_all_images(ORenderer* renderer) {
-    for (uint32_t i = 0; i < renderer->retireList.count; i++) {
+    for (u32 i = 0; i < renderer->retireList.count; i++) {
         OImage img = renderer->retireList.data[i].image;
         MHandle h = (MHandle){.id = img.id, .age = img.age};
         OImageSlot* imgSlot = memory_pool_item_at(renderer->imagePool, img.id);
@@ -89,7 +91,7 @@ static void drain_all_images(ORenderer* renderer) {
 }
 
 static void drain_retired_images(ORenderer* renderer) {
-    for (uint32_t i = 0; i < renderer->retireList.count; i++) {
+    for (u32 i = 0; i < renderer->retireList.count; i++) {
         if ( renderer->retireList.data[i].frameAtDeletion  + MAX_FRAMES_IN_FLIGHT <= renderer->frameIndex) {
             OImage img = renderer->retireList.data[i].image;
             MHandle h = (MHandle){.id = img.id, .age = img.age};
@@ -202,7 +204,7 @@ ORenderer *renderer_create(ORendererDesc desc) {
         LOG_ERROR("failed to create shared event object"); return NULL;
     }
 
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+    for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         if (!(g_renderer.cmdAllocator[i] = [g_renderer.device newCommandAllocator])) {
             LOG_ERROR("failed to create command allocator for index: %d", i); return NULL;
         }
@@ -235,7 +237,7 @@ void renderer_wait_idle(ORenderer *renderer) {
 }
 
 bool renderer_begin_frame(ORenderer *renderer) {
-    uint64_t slot = renderer->frameIndex % MAX_FRAMES_IN_FLIGHT;
+    u64 slot = renderer->frameIndex % MAX_FRAMES_IN_FLIGHT;
     if (renderer->frameIndex >= MAX_FRAMES_IN_FLIGHT) {
         if (![renderer->sharedEvent waitUntilSignaledValue:(renderer->frameIndex - MAX_FRAMES_IN_FLIGHT + 1) timeoutMS:1000]){
             LOG_WARN("GPU did not finish frame %llu within 1000ms\n", renderer->frameIndex - MAX_FRAMES_IN_FLIGHT + 1);
@@ -262,7 +264,7 @@ void renderer_end_frame_and_present(ORenderer *renderer) {
     [renderer->queue commit: &renderer->cmdBuffer count: 1];
     [renderer->queue signalEvent: renderer->sharedEvent value: renderer->frameIndex + 1];
 
-    for (uint32_t i = 0; i < MAX_LAYER_COUNT; i++) {
+    for (u32 i = 0; i < MAX_LAYER_COUNT; i++) {
         if (renderer->layerList.data[i].currentDrawable) {
             [renderer->queue signalDrawable:renderer->layerList.data[i].currentDrawable];
             [renderer->layerList.data[i].currentDrawable present];
@@ -319,7 +321,7 @@ void renderer_begin_render(ORenderer *renderer, ORenderTargets targets) {
     }
 
     MTL4RenderPassDescriptor* pass = [MTL4RenderPassDescriptor new];
-    for (uint32_t i = 0; i < targets.color_count; i++) {
+    for (u32 i = 0; i < targets.color_count; i++) {
         MHandle h = (MHandle){.id = targets.colors[i].image.id, .age = targets.colors[i].image.age};
         OImageSlot * imgSlot = (OImageSlot*)memory_pool_item_get(renderer->imagePool, h);
         if (!imgSlot) {
@@ -369,8 +371,8 @@ void renderer_end_render(ORenderer *renderer) {
 
 OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle, OSurfaceDesc desc) {
     // get the first free layer slot
-    int32_t freeID = 0;
-    for (int i = 0; i < MAX_LAYER_COUNT; i++) {
+    i32 freeID = 0;
+    for (i32 i = 0; i < MAX_LAYER_COUNT; i++) {
         if (renderer->layerList.data[i].layer == NULL) {
             freeID = i + 1;
             break;
@@ -400,7 +402,7 @@ OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle
 
     renderer->layerList.data[freeID - 1].view = view;
     renderer->layerList.data[freeID - 1].layer = layer;
-    uint32_t currAge = renderer->layerList.data[freeID - 1].age;
+    u32 currAge = renderer->layerList.data[freeID - 1].age;
     return (OSurface){freeID, currAge};
 }
 
@@ -489,7 +491,7 @@ void renderer_destroy(ORenderer *renderer){
     [renderer->residencySet removeAllocation: renderer->imageTable];
     [renderer->residencySet removeAllocation: renderer->frameArena];
 
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+    for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         renderer->cmdAllocator[i] = nil;
     }
 

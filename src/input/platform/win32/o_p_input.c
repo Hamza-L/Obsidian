@@ -3,6 +3,7 @@
 #include <windowsx.h>
 
 #include "input/o_input_internal.h"
+#include "core/o_types.h"
 #include "o_log.h"
 
 #define KEY_IS_DOWN(vk) ((GetKeyState(vk) & 0x8000) != 0)
@@ -12,7 +13,7 @@
 
 static struct {
     HHOOK hook;
-    float last_x, last_y;
+    f32 last_x, last_y;
     bool has_last;
     wchar_t pending_high_surrogate;
 } g_win;
@@ -80,8 +81,8 @@ static void push_char(wchar_t c) {
 }
 
 static void push_mouse_move(LPARAM lparam) {
-    const float x = (float)GET_X_LPARAM(lparam);
-    const float y = (float)GET_Y_LPARAM(lparam);
+    const f32 x = (f32)GET_X_LPARAM(lparam);
+    const f32 y = (f32)GET_Y_LPARAM(lparam);
     input_push(&(OInputEvent){
         .kind = O_INPUT_MOUSE_MOVE,
         .data.move = {
@@ -102,14 +103,14 @@ static void push_mouse_button(OInputEventKind kind, UINT msg, LPARAM lparam) {
         .data.button = {
             .button = map_mouse_button(msg),
             .modifiers = get_modifiers(),
-            .x = (float)GET_X_LPARAM(lparam),
-            .y = (float)GET_Y_LPARAM(lparam),
+            .x = (f32)GET_X_LPARAM(lparam),
+            .y = (f32)GET_Y_LPARAM(lparam),
         },
     });
 }
 
 static void push_scroll(UINT msg, WPARAM wparam) {
-    const float notches = (float)GET_WHEEL_DELTA_WPARAM(wparam) / WHEEL_DELTA;
+    const f32 notches = (f32)GET_WHEEL_DELTA_WPARAM(wparam) / WHEEL_DELTA;
     input_push(&(OInputEvent){
         .kind = O_INPUT_MOUSE_SCROLL,
         .data.scroll = {

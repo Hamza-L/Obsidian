@@ -1,6 +1,7 @@
 #include "o_memory.h"
 
 #include "memory/o_memory_internal.h"
+#include "core/o_types.h"
 #include "o_log.h"
 
 #include <string.h>
@@ -16,21 +17,21 @@ MPOOL_COMMIT_FAILED,
 } MPOOL_ERR;
 
 typedef struct {
-    uint32_t slotSize;
-    uint32_t maxCount;
-    uint32_t commitedCount;
-    uint32_t count;
-    uint8_t* data;
-    uint32_t* generation;
+    u32 slotSize;
+    u32 maxCount;
+    u32 commitedCount;
+    u32 count;
+    u8  *data;
+    u32 *generation;
     struct {
-        uint32_t* entries;
-        uint32_t count;
+        u32 *entries;
+        u32 count;
     } freelist;
     MPOOL_ERR errCode;
 } MPool_;
 
-MPool memory_pool_create(const uint32_t slot_size, const uint32_t max_count) {
-    MPool_* pool = (MPool_*)malloc(sizeof(*pool));
+MPool memory_pool_create(const u32 slot_size, const u32 max_count) {
+    MPool_ *pool = (MPool_*)malloc(sizeof(*pool));
     pool->slotSize = slot_size;
     pool->count = 0;
     pool->commitedCount = max_count < INIT_POOL_SLOT_COUNT ? max_count : INIT_POOL_SLOT_COUNT;
@@ -39,13 +40,13 @@ MPool memory_pool_create(const uint32_t slot_size, const uint32_t max_count) {
     pool->errCode = MPOOL_OK;
 
     pool->data = m_reserve((size_t)pool->maxCount * slot_size);
-    pool->freelist.entries = m_reserve(pool->maxCount * sizeof(uint32_t));
-    pool->generation = m_reserve(pool->maxCount * sizeof(uint32_t));
+    pool->freelist.entries = m_reserve(pool->maxCount * sizeof(u32));
+    pool->generation = m_reserve(pool->maxCount * sizeof(u32));
 
     bool commitFailed = 0;
     commitFailed |= m_commit(pool->data, (size_t)pool->commitedCount * slot_size) == NULL;
-    commitFailed |= m_commit(pool->freelist.entries, pool->commitedCount * sizeof(uint32_t)) == NULL;
-    commitFailed |= m_commit(pool->generation, pool->commitedCount * sizeof(uint32_t)) == NULL;
+    commitFailed |= m_commit(pool->freelist.entries, pool->commitedCount * sizeof(u32)) == NULL;
+    commitFailed |= m_commit(pool->generation, pool->commitedCount * sizeof(u32)) == NULL;
 
     if (commitFailed) {
         LOG_ERROR("failed to create memory pool");
@@ -59,15 +60,15 @@ MPool memory_pool_create(const uint32_t slot_size, const uint32_t max_count) {
 void memory_pool_destroy(MPool pool_) {
     MPool_* pool = (MPool_*)pool_;
     m_release(pool->data, (size_t)pool->maxCount * pool->slotSize);
-    m_release(pool->freelist.entries, pool->maxCount * sizeof(uint32_t));
-    m_release(pool->generation, pool->maxCount * sizeof(uint32_t));
+    m_release(pool->freelist.entries, pool->maxCount * sizeof(u32));
+    m_release(pool->generation, pool->maxCount * sizeof(u32));
     free(pool);
 }
 
 MHandle memory_pool_item_acquire(MPool pool_) {
     MPool_* pool = (MPool_*)pool_;
 
-    uint32_t freeslot = 0;
+    u32 freeslot = 0;
     if (pool->freelist.count) {
         freeslot = pool->freelist.entries[pool->freelist.count - 1];
         pool->freelist.count--;
@@ -87,8 +88,8 @@ MHandle memory_pool_item_acquire(MPool pool_) {
 
         bool commitFailed = 0;
         commitFailed |= m_commit(pool->data, newCommitCount * pool->slotSize) == NULL;
-        commitFailed |= m_commit(pool->freelist.entries, newCommitCount * sizeof(uint32_t)) == NULL;
-        commitFailed |= m_commit(pool->generation, newCommitCount * sizeof(uint32_t)) == NULL;
+        commitFailed |= m_commit(pool->freelist.entries, newCommitCount * sizeof(u32)) == NULL;
+        commitFailed |= m_commit(pool->generation, newCommitCount * sizeof(u32)) == NULL;
 
         if(commitFailed){
             pool->errCode = MPOOL_COMMIT_FAILED;
@@ -155,7 +156,7 @@ void memory_pool_item_remove(MPool pool_, MHandle handle) {
     }
 }
 
-void *memory_pool_item_at(MPool pool_, uint32_t index) {
+void *memory_pool_item_at(MPool pool_, u32 index) {
     MPool_* pool = (MPool_*)pool_;
     if (index == 0) {
         LOG_DEBUG("lookup with null index [index = 0 is NULL]");

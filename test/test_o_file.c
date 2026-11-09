@@ -1,6 +1,8 @@
 #include "o_test.h"
 #include "o_file.h"
 
+#include "core/o_types.h"
+
 #include <stdio.h>
 #include <string.h>
 
@@ -14,7 +16,7 @@ void test_o_file(void) {
     fwrite(k_payload, 1, sizeof k_payload - 1, f);
     fclose(f);
 
-    uint32_t size = 0;
+    u32 size = 0;
     read_file(k_file_path, NULL, &size);
     CHECK(size == sizeof k_payload - 1);
 

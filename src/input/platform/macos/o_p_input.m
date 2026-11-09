@@ -68,7 +68,7 @@ static void push_text(NSEvent *event) {
     if (is_shortcut) return;
 
     NSString *text = event.characters;
-    uint32_t codepoints[32];
+    u32 codepoints[32];
     NSUInteger used = 0;
     [text getBytes:codepoints
              maxLength:sizeof codepoints
@@ -84,7 +84,7 @@ static void push_mouse_move(NSEvent *event) {
     NSPoint p = content_location(event);
     input_push(&(OInputEvent){
         .kind = O_INPUT_MOUSE_MOVE,
-        .data.move = {.x = (float)p.x, .y = (float)p.y, .delta_x = (float)event.deltaX, .delta_y = (float)event.deltaY},
+        .data.move = {.x = (f32)p.x, .y = (f32)p.y, .delta_x = (f32)event.deltaX, .delta_y = (f32)event.deltaY},
     });
 }
 
@@ -95,8 +95,8 @@ static void push_mouse_button(OInputEventKind kind, NSEvent *event) {
         .data.button = {
             .button = map_mouse_button(event.buttonNumber),
             .modifiers = map_modifiers(event.modifierFlags),
-            .x = (float)p.x,
-            .y = (float)p.y,
+            .x = (f32)p.x,
+            .y = (f32)p.y,
         },
     });
 }
@@ -104,7 +104,7 @@ static void push_mouse_button(OInputEventKind kind, NSEvent *event) {
 static void push_scroll(NSEvent *event) {
     input_push(&(OInputEvent){
         .kind = O_INPUT_MOUSE_SCROLL,
-        .data.scroll = {.delta_x = (float)event.scrollingDeltaX, .delta_y = (float)event.scrollingDeltaY},
+        .data.scroll = {.delta_x = (f32)event.scrollingDeltaX, .delta_y = (f32)event.scrollingDeltaY},
     });
 }
 

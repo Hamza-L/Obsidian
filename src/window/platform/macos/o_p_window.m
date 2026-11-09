@@ -4,12 +4,14 @@
 #include "o_log.h"
 #include "o_window.h"
 
+#include "core/o_types.h"
+
 #include <stdlib.h>
 #include <string.h>
 
 static struct {
     bool initialized;
-    uint32_t window_count;
+    u32 window_count;
 } g_app;
 
 struct OWindow {
@@ -82,7 +84,7 @@ static void wake_event_loop(void) {
     OWindow *w = self.owner;
     if (!w || !w->callbacks.on_resize) return;
     NSSize size = self.bounds.size;
-    w->callbacks.on_resize(w, (int32_t)size.width, (int32_t)size.height, w->user_data);
+    w->callbacks.on_resize(w, (i32)size.width, (i32)size.height, w->user_data);
 }
 
 - (void)windowDidMove:(NSNotification *)notification {
@@ -90,7 +92,7 @@ static void wake_event_loop(void) {
     OWindow *w = self.owner;
     if (!w || !w->callbacks.on_move) return;
     NSPoint origin = self.window.frame.origin;
-    w->callbacks.on_move(w, (int32_t)origin.x, (int32_t)origin.y, w->user_data);
+    w->callbacks.on_move(w, (i32)origin.x, (i32)origin.y, w->user_data);
 }
 
 // Swallows keys so AppKit does not beep; o_input delivers them.
@@ -166,7 +168,7 @@ OWindow *window_create(OWindowDesc desc) {
     // spawn window where cursor is
     NSScreen *screen = NSScreen.mainScreen;
     NSPoint curpos = NSEvent.mouseLocation;
-    for (uint32_t i = 0; i < NSScreen.screens.count; i++) {
+    for (u32 i = 0; i < NSScreen.screens.count; i++) {
         screen = NSScreen.screens[i];
         if (curpos.x > screen.frame.origin.x &&
             curpos.x < screen.frame.origin.x + screen.frame.size.width &&
@@ -254,11 +256,11 @@ void window_set_title(OWindow *window, const char *title) {
     if (window && title) ns_window_of(window).title = @(title);
 }
 
-void window_set_position(OWindow *window, int32_t x, int32_t y) {
+void window_set_position(OWindow *window, i32 x, i32 y) {
     if (window) [ns_window_of(window) setFrameOrigin:NSMakePoint(x, y)];
 }
 
-void window_set_size(OWindow *window, int32_t width, int32_t height) {
+void window_set_size(OWindow *window, i32 width, i32 height) {
     if (!window || width <= 0 || height <= 0) return;
     NSWindow *ns_window = ns_window_of(window);
     NSRect content = [ns_window contentRectForFrameRect:ns_window.frame];
@@ -272,18 +274,18 @@ void window_set_callbacks(OWindow *window, OWindowCallbacks callbacks, void *use
     window->user_data = user_data;
 }
 
-static bool write_size(NSSize size, int32_t *out_width, int32_t *out_height) {
-    if (out_width) *out_width = (int32_t)size.width;
-    if (out_height) *out_height = (int32_t)size.height;
+static bool write_size(NSSize size, i32 *out_width, i32 *out_height) {
+    if (out_width) *out_width = (i32)size.width;
+    if (out_height) *out_height = (i32)size.height;
     return true;
 }
 
-bool window_get_content_size(const OWindow *window, int32_t *out_width, int32_t *out_height) {
+bool window_get_content_size(const OWindow *window, i32 *out_width, i32 *out_height) {
     if (!window || !window->open) return false;
     return write_size(ns_window_of(window).contentView.bounds.size, out_width, out_height);
 }
 
-bool window_get_pixel_size(const OWindow *window, int32_t *out_width, int32_t *out_height) {
+bool window_get_pixel_size(const OWindow *window, i32 *out_width, i32 *out_height) {
     if (!window || !window->open) return false;
     NSView *view = ns_window_of(window).contentView;
     return write_size([view convertRectToBacking:view.bounds].size, out_width, out_height);
