@@ -57,8 +57,8 @@ static bool create_triangle_pipeline(ORenderer *renderer) {
     ID3DBlob *vs = compile_hlsl("vs_main", "vs_5_0");
     ID3DBlob *ps = compile_hlsl("ps_main", "ps_5_0");
     bool ok = vs && ps;
-    ok &= SUCCEEDED(ID3D11Device_CreateVertexShader(renderer->device, ID3D10Blob_GetBufferPointer(vs), ID3D10Blob_GetBufferSize(vs), NULL, &renderer->triangleVS));
-    ok &= SUCCEEDED(ID3D11Device_CreatePixelShader(renderer->device, ID3D10Blob_GetBufferPointer(ps), ID3D10Blob_GetBufferSize(ps), NULL, &renderer->trianglePS));
+    ok = ok && SUCCEEDED(ID3D11Device_CreateVertexShader(renderer->device, ID3D10Blob_GetBufferPointer(vs), ID3D10Blob_GetBufferSize(vs), NULL, &renderer->triangleVS));
+    ok = ok && SUCCEEDED(ID3D11Device_CreatePixelShader(renderer->device, ID3D10Blob_GetBufferPointer(ps), ID3D10Blob_GetBufferSize(ps), NULL, &renderer->trianglePS));
     if (vs) ID3D10Blob_Release(vs);
     if (ps) ID3D10Blob_Release(ps);
     if (!ok) return false;
