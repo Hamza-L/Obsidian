@@ -35,15 +35,15 @@ void window_close(OWindow *window);
 
 bool window_poll_events(void);
 
-void *window_get_bitmap(OWindow *window, int32_t *x, int32_t *y, int32_t *width, int32_t *height);
+void *window_get_bitmap(OWindow *window, int32_t *width, int32_t *height);
 
 void window_set_title(OWindow *window, const char *title);
 void window_set_position(OWindow *window, int32_t x, int32_t y);
 void window_set_size(OWindow *window, int32_t width, int32_t height);
 void window_set_callbacks(OWindow *window, OWindowCallbacks callbacks, void *user_data);
 
-bool window_get_content_size(const OWindow *window, int32_t *x, int32_t *y, int32_t *width, int32_t *height);
-bool window_get_pixel_size(const OWindow *window, int32_t *x, int32_t *y, int32_t *width, int32_t *height);
+bool window_get_content_size(const OWindow *window, int32_t *out_width, int32_t *out_height);
+bool window_get_pixel_size(const OWindow *window, int32_t *out_width, int32_t *out_height);
 
 bool window_is_open(const OWindow *window);
 

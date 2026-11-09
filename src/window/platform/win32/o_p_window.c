@@ -119,9 +119,9 @@ static void window_create_bitmap(OWindow* w, i32 width, i32 height) {
     m_commit(w->bitmap.data, dataSize);
 }
 
-static void update_window(OWindow *w, HDC dc, i32 x, i32 y, i32 width, i32 height) {
+static void update_window(OWindow *w, HDC dc, i32 width, i32 height) {
     StretchDIBits(dc,
-                  x, y, width, height,
+                  0, 0, width, height,
                   0, 0, w->bitmap.width, w->bitmap.height, // copy from exact rect size to exact rect size
                   w->bitmap.data,
                   &w->bitmap.info,
@@ -147,11 +147,11 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
     } break;
 
     case WM_PAINT: {
-        i32 x = 0, y = 0, width = 0, height = 0;
-        window_get_content_size(w, &x, &y, &width, &height);
+        i32 width = 0, height = 0;
+        window_get_content_size(w, &width, &height);
         PAINTSTRUCT paint;
         HDC dc = BeginPaint(hwnd, &paint);
-        update_window(w, dc, x, y, width, height);
+        update_window(w, dc, width, height);
         EndPaint(hwnd, &paint);
     } break;
 
@@ -225,9 +225,9 @@ bool window_poll_events(void) {
             color_bitmap(w->bitmap.data, w->bitmap.width, w->bitmap.height, g_xOffset, g_yOffset);
 
             HDC dc = GetDC(w->hwnd);
-            i32 x = 0, y = 0, width = 0, height = 0;
-            window_get_content_size(w, &x, &y, &width, &height);
-            update_window(w, dc, x, y, width, height);
+            i32 width = 0, height = 0;
+            window_get_content_size(w, &width, &height);
+            update_window(w, dc, width, height);
             ReleaseDC(w->hwnd, dc);
         }
 
@@ -291,7 +291,7 @@ OWindow *window_create(OWindowDesc desc) {
     g_app.windows = window;
 
     i32 width = 0, height = 0;
-    window_get_content_size(window, NULL, NULL, &width, &height);
+    window_get_content_size(window, &width, &height);
     window_create_bitmap(window, width, height);
 
     window_show(window);
@@ -348,18 +348,16 @@ void window_set_callbacks(OWindow *window, OWindowCallbacks callbacks, void *use
     window->userdata = userdata;
 }
 
-bool window_get_content_size(const OWindow *window, int32_t *x, int32_t *y, int32_t *width, int32_t *height) {
+bool window_get_content_size(const OWindow *window, int32_t *out_width, int32_t *out_height) {
     RECT r = {0};
     if (!window || !window->hwnd || !GetClientRect(window->hwnd, &r)) return false;
-    if (x) *x = r.left;
-    if (y) *y = r.top;
-    if (width) *width = r.right - r.left;
-    if (height) *height = r.bottom - r.top;
+    if (out_width) *out_width = r.right - r.left;
+    if (out_height) *out_height = r.bottom - r.top;
     return true;
 }
 
-bool window_get_pixel_size(const OWindow *window, int32_t *x, int32_t *y, int32_t *width, int32_t *height) {
-    return window_get_content_size(window, x, y, width, height );
+bool window_get_pixel_size(const OWindow *window, int32_t *out_width, int32_t *out_height) {
+    return window_get_content_size(window, out_width, out_height);
 }
 
 bool window_is_open(const OWindow *window) {
@@ -370,7 +368,7 @@ void *window_native_handle(const OWindow *window) {
     return window ? window->hwnd : NULL;
 }
 
-void *window_get_bitmap(OWindow *window, int32_t *x, int32_t *y, int32_t *width, int32_t *height) {
-    window_get_content_size(window, x, y, width, height);
+void *window_get_bitmap(OWindow *window, int32_t *width, int32_t *height) {
+    window_get_content_size(window, width, height);
     return window->bitmap.data;
 }
