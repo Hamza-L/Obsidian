@@ -76,18 +76,20 @@ static void set_content_size(HWND hwnd, i32 width, i32 height) {
     SetWindowPos(hwnd, NULL, 0, 0, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOMOVE | SWP_NOACTIVATE);
 }
 
+// 32-bit BI_RGB pixels are 0xAARRGGBB, i.e. bytes B, G, R, A in memory (same as B8G8R8A8).
+static u32 pack_bgra(u8 r, u8 g, u8 b, u8 a) {
+    return ((u32)a << 24) | ((u32)r << 16) | ((u32)g << 8) | (u32)b;
+}
+
 static void color_bitmap(void *data, i32 width, i32 height, i32 offsetX, i32 offsetY) {
-    u8 *row = data;
-    u32 pitch = width * sizeof(u8) * 4;
+    u32 *pixel = data;
     for (i32 i = 0; i < height; ++i) {
-        u8 *rgba = row;
         for (i32 j = 0; j < width; ++j) {
-            *rgba = ((float)j) * 255 + offsetX;   ++rgba;
-            *rgba = (1.0 - ((float)(i + j) / (height + width))) * 255;   ++rgba;
-            *rgba = ((float)i) * 255 + offsetY; ++rgba;
-            *rgba = 255;   ++rgba;
+            u8 r = (u8)(j + offsetX);
+            u8 g = (u8)(255 - (255 * (i + j)) / (height + width));
+            u8 b = (u8)(i + offsetY);
+            *pixel++ = pack_bgra(r, g, b, 255);
         }
-        row += pitch;
     }
 }
 
