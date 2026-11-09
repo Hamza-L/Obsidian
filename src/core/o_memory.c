@@ -1,6 +1,6 @@
 #include "o_memory.h"
 
-#include "memory/o_memory_internal.h"
+#include "core/o_alloc.h"
 #include "core/o_typedefs.h"
 #include "o_log.h"
 

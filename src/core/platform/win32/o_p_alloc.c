@@ -1,4 +1,4 @@
-#include "memory/o_memory_internal.h"
+#include "core/o_alloc.h"
 
 #include "o_log.h"
 

@@ -1,5 +1,5 @@
 #include "o_module_log.c"
-#include "o_module_memory.c"
+#include "o_module_core.c"
 #include "o_module_file.c"
 #include "o_module_input.c"
 #include "o_module_window.c"
