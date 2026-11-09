@@ -93,10 +93,16 @@ static void color_bitmap(void *data, i32 width, i32 height, i32 offsetX, i32 off
     }
 }
 
+static void window_release_bitmap(OWindow *w) {
+    if (w->bitmap.data) m_release(w->bitmap.data, (size_t)w->bitmap.width * w->bitmap.height * 4);
+    w->bitmap.data = NULL;
+    w->bitmap.width = 0;
+    w->bitmap.height = 0;
+}
+
 static void window_create_bitmap(OWindow* w, i32 width, i32 height) {
-    if (w->bitmap.data) {
-        m_release(w->bitmap.data, 0);
-    }
+    window_release_bitmap(w);
+    if (width <= 0 || height <= 0) return;
 
     BITMAPINFO bmapInfo = {0};
     bmapInfo.bmiHeader.biSize = sizeof(bmapInfo.bmiHeader);
@@ -149,15 +155,18 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
     } break;
 
     case WM_PAINT: {
+        if (!w) break;
         i32 width = 0, height = 0;
         window_get_content_size(w, &width, &height);
         PAINTSTRUCT paint;
         HDC dc = BeginPaint(hwnd, &paint);
-        update_window(w, dc, width, height);
+        if (w->bitmap.data) update_window(w, dc, width, height);
         EndPaint(hwnd, &paint);
-    } break;
+        return 0;
+    }
 
     case WM_DESTROY: {
+        if (!w) return 0;
         w->open = false;
         g_app.window_count--;
         if (w->callbacks.on_close) {
@@ -177,7 +186,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         i32 width = LOWORD(lparam), height = HIWORD(lparam);
         if (w->callbacks.on_resize) w->callbacks.on_resize(w, width, height, w->userdata);
         if (w->callbacks.on_refresh) w->callbacks.on_refresh(w, w->userdata);
-        if (w->bitmap.width != width && w->bitmap.height != height) {
+        if (w->bitmap.width != width || w->bitmap.height != height) {
             window_create_bitmap(w, width, height);
         }
         color_bitmap(w->bitmap.data, w->bitmap.width, w->bitmap.height, g_xOffset, g_yOffset);
@@ -312,6 +321,8 @@ void window_destroy(OWindow *window) {
             break;
         }
     }
+    window_release_bitmap(window);
+    if (window->bitmap.dc) DeleteDC(window->bitmap.dc);
     free(window);
 }
 
