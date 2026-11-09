@@ -1,7 +1,7 @@
 #include "o_log.h"
 
 #include "renderer/backend/vulkan/o_b_renderer_internal.h"
-#include "core/o_types.h"
+#include "core/o_typedefs.h"
 
 #include <stdlib.h>
 #include <string.h>

@@ -2,7 +2,7 @@
 
 #include "renderer/backend/d3d11/o_b_renderer_internal.h"
 
-#include "core/o_types.h"
+#include "core/o_typedefs.h"
 
 #include <d3dcompiler.h>
 #include <string.h>

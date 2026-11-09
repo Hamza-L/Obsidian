@@ -3,7 +3,7 @@
 #include <windowsx.h>
 
 #include "input/o_input_internal.h"
-#include "core/o_types.h"
+#include "core/o_typedefs.h"
 #include "o_log.h"
 
 #define KEY_IS_DOWN(vk) ((GetKeyState(vk) & 0x8000) != 0)

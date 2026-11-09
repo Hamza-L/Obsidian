@@ -1,7 +1,7 @@
 #include "o_file.h"
 #include "o_log.h"
 
-#include "core/o_types.h"
+#include "core/o_typedefs.h"
 
 void read_file(const char *filepath, void *data, u32 *size) {
     FILE *f = fopen(filepath, "rb");

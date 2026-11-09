@@ -25,7 +25,7 @@
 #include "renderer/backend/vulkan/platform/win32/o_b_p_swapchain.h"
 #include "renderer/backend/vulkan/o_b_vulkan_limits.h"
 
-#include "core/o_types.h"
+#include "core/o_typedefs.h"
 
 #include <stdlib.h>
 #include <string.h>

@@ -1,7 +1,7 @@
 #ifndef O_STRING_H
 #define O_STRING_H
 
-#include "o_types.h"
+#include "core/o_typedefs.h"
 
 typedef struct {
     char *data;

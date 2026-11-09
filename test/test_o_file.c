@@ -1,7 +1,7 @@
 #include "o_test.h"
 #include "o_file.h"
 
-#include "core/o_types.h"
+#include "core/o_typedefs.h"
 
 #include <stdio.h>
 #include <string.h>

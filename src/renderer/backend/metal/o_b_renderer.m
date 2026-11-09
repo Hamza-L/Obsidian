@@ -3,7 +3,7 @@
 
 #include "renderer/backend/metal/o_b_renderer_internal.h"
 
-#include "core/o_types.h"
+#include "core/o_typedefs.h"
 
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>

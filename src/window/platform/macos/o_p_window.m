@@ -4,7 +4,7 @@
 #include "o_log.h"
 #include "o_window.h"
 
-#include "core/o_types.h"
+#include "core/o_typedefs.h"
 
 #include <stdlib.h>
 #include <string.h>

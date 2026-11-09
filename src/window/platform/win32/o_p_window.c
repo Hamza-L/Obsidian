@@ -5,7 +5,7 @@
 
 #include "o_log.h"
 #include "o_window.h"
-#include "core/o_types.h"
+#include "core/o_typedefs.h"
 #include "memory/o_memory_internal.h"
 
 #include <stdlib.h>

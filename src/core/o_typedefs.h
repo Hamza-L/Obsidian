@@ -1,5 +1,5 @@
-#ifndef O_TYPES_H
-#define O_TYPES_H
+#ifndef O_TYPEDEFS_H
+#define O_TYPEDEFS_H
 
 #include <stdint.h>
 
@@ -14,6 +14,6 @@ typedef uint16_t u16;
 typedef uint8_t  u8;
 
 typedef float f32;
-typedef double d64;
+typedef double f64;
 
 #endif
