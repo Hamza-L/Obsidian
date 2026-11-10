@@ -41,7 +41,6 @@ struct OWindow {
         void *data;
         i32 width;
         i32 height;
-        HDC dc;
         BITMAPINFO info;
     } bitmap;
 
@@ -76,6 +75,8 @@ static void set_content_size(HWND hwnd, i32 width, i32 height) {
     SetWindowPos(hwnd, NULL, 0, 0, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOMOVE | SWP_NOACTIVATE);
 }
 
+// memory : BB GG RR AA
+// register : AA RR GG BB
 // 32-bit BI_RGB pixels are 0xAARRGGBB, i.e. bytes B, G, R, A in memory (same as B8G8R8A8).
 static u32 pack_bgra(u8 r, u8 g, u8 b, u8 a) {
     return ((u32)a << 24) | ((u32)r << 16) | ((u32)g << 8) | (u32)b;
@@ -111,8 +112,6 @@ static void window_create_bitmap(OWindow* w, i32 width, i32 height) {
     bmapInfo.bmiHeader.biPlanes = 1; //default to 1
     bmapInfo.bmiHeader.biBitCount = 32;
     bmapInfo.bmiHeader.biCompression = BI_RGB;
-
-    if(!w->bitmap.dc) w->bitmap.dc = CreateCompatibleDC(0);
 
     w->bitmap.info = bmapInfo;
     w->bitmap.width = width;
@@ -322,7 +321,6 @@ void window_destroy(OWindow *window) {
         }
     }
     window_release_bitmap(window);
-    if (window->bitmap.dc) DeleteDC(window->bitmap.dc);
     free(window);
 }
 
