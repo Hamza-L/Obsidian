@@ -5,10 +5,10 @@
 #include <stdint.h>
 
 typedef enum OLogLevel {
-    O_LOG_DEBUG,
     O_LOG_INFO,
     O_LOG_WARN,
     O_LOG_ERROR,
+    O_LOG_DEBUG,
 } OLogLevel;
 
 typedef uint32_t OLogSinks;
