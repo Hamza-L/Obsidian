@@ -31,7 +31,7 @@ set CFLAGS=-std=c99 -g -DDEBUG -Wall -Wextra -Wpedantic -Werror -DRENDERER_VALID
 set CFLAGS=%CFLAGS% -I./external -I./include -I./src
 set CFLAGS=%CFLAGS% -D_CRT_SECURE_NO_WARNINGS -DUNICODE -D_UNICODE -fms-runtime-lib=dll_dbg
 set LDFLAGS=-g
-set LDLIBS=-luser32.lib -lgdi32.lib -ldwmapi.lib -ld3d11.lib -ldxgi.lib
+set LDLIBS=-luser32.lib -lgdi32.lib -ldwmapi.lib -ld3d11.lib -ldxgi.lib -lXinput.lib
 set LDLIBS=%LDLIBS% -Wl,-nodefaultlib:libcmt.lib -Wl,-nodefaultlib:libcmtd.lib
 
 if "%ASAN%"=="1" (
