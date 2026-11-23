@@ -64,10 +64,12 @@ static inline void trace(OInputEvent event) {
     case O_INPUT_MOUSE_SCROLL:
         LOG_DEBUG("scroll   dx=%.2f dy=%.2f", event.data.scroll.delta_x, event.data.scroll.delta_y);
         break;
+    default: break;
     }
 }
 
 void input_dispatch_event(OInputEvent event) {
+    if(event.kind == O_INPUT_NONE) return;
     trace(event);
     for (u32 i = 0; i < MAX_INPUT_SUBSCRIBERS; i++) {
         OInputSubscriber *s = &g_input.subscribers[i];
@@ -81,6 +83,7 @@ void input_dispatch_event(OInputEvent event) {
         case O_INPUT_MOUSE_DOWN: if (cb->on_mouse_down) cb->on_mouse_down(s, event.data.button, s->user_data); break;
         case O_INPUT_MOUSE_UP: if (cb->on_mouse_up) cb->on_mouse_up(s, event.data.button, s->user_data); break;
         case O_INPUT_MOUSE_SCROLL: if (cb->on_mouse_scroll) cb->on_mouse_scroll(s, event.data.scroll, s->user_data); break;
+        default: break;
         }
     }
 }

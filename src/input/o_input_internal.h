@@ -6,6 +6,7 @@
 enum{ MAX_INPUT_SUBSCRIBERS = 8};
 
 typedef enum OInputEventKind {
+    O_INPUT_NONE,
     O_INPUT_KEY_DOWN,
     O_INPUT_KEY_UP,
     O_INPUT_TEXT,
