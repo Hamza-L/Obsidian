@@ -141,23 +141,38 @@ void renderer_wait_idle(ORenderer *renderer) {
     ID3D11DeviceContext_Flush(renderer->context);
 }
 
+static OLayerSlot *layer_slot_get(ORenderer *renderer, OSurface surface) {
+    if (!surface.id || surface.id > MAX_LAYER_COUNT) return NULL;
+    OLayerSlot *layerSlot = &renderer->layerList.data[surface.id - 1];
+    return layerSlot->swapchain && layerSlot->age == surface.age ? layerSlot : NULL;
+}
+
 bool renderer_begin_frame(ORenderer *renderer, OSurface surface) {
-    (void)surface;
-    renderer->presentMask = 0;
+    OLayerSlot *layerSlot = layer_slot_get(renderer, surface);
+    if (!layerSlot || layerSlot->inFrame) {
+        LOG_WARN("renderer_begin_frame: surface is destroyed or already in a frame");
+        return false;
+    }
+
+    layerSlot->shouldPresent = false;
+    layerSlot->inFrame = true;
     return true;
 }
 
 void renderer_end_frame_and_present(ORenderer *renderer, OSurface surface) {
-    (void)surface;
-    for (u32 i = 0; i < MAX_LAYER_COUNT; i++) {
-        IDXGISwapChain1 *swapchain = renderer->layerList.data[i].swapchain;
-        if (!swapchain || !(renderer->presentMask & (1u << i))) continue;
+    OLayerSlot *layerSlot = layer_slot_get(renderer, surface);
+    if (!layerSlot || !layerSlot->inFrame) {
+        LOG_WARN("renderer_end_frame_and_present: surface is destroyed or not in a frame");
+        return;
+    }
 
+    if (layerSlot->shouldPresent) {
         DXGI_PRESENT_PARAMETERS params = {0};
-        HRESULT hr = IDXGISwapChain1_Present1(swapchain, renderer->layerList.data[i].vsync ? 1 : 0, 0, &params);
+        HRESULT hr = IDXGISwapChain1_Present1(layerSlot->swapchain, layerSlot->vsync ? 1 : 0, 0, &params);
         if (FAILED(hr)) LOG_ERROR("IDXGISwapChain1::Present1 failed (hr=0x%08lx)", hr);
     }
-    renderer->presentMask = 0;
+    layerSlot->shouldPresent = false;
+    layerSlot->inFrame = false;
 }
 
 void renderer_begin_render(ORenderer *renderer, ORenderTargets targets) {
@@ -300,21 +315,22 @@ OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle
 }
 
 void renderer_surface_destroy(ORenderer *renderer, OSurface surface) {
-    if (!surface.id || surface.id > MAX_LAYER_COUNT || surface.age != renderer->layerList.data[surface.id - 1].age) {
+    OLayerSlot *layerSlot = layer_slot_get(renderer, surface);
+    if (!layerSlot) {
         LOG_WARN("attempting to destroy an already destroyed surface");
         return;
     }
-    u32 index = surface.id - 1;
-    if (renderer->layerList.data[index].swapchain) IDXGISwapChain1_Release(renderer->layerList.data[index].swapchain);
-    renderer->layerList.data[index].swapchain = NULL;
-    renderer->layerList.data[index].age++;
-    renderer->presentMask &= ~(1u << index);
+    IDXGISwapChain1_Release(layerSlot->swapchain);
+    layerSlot->swapchain = NULL;
+    layerSlot->inFrame = false;
+    layerSlot->shouldPresent = false;
+    layerSlot->age++;
 }
 
 void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) {
-    if (!surface.id || surface.id > MAX_LAYER_COUNT || surface.age != renderer->layerList.data[surface.id - 1].age ||
-        !renderer->layerList.data[surface.id - 1].swapchain) {
-        LOG_WARN("attempting to present an already destroyed surface");
+    OLayerSlot *layerSlot = layer_slot_get(renderer, surface);
+    if (!layerSlot || !layerSlot->inFrame) {
+        LOG_WARN("renderer_surface_blit: surface is destroyed or not in a frame");
         return;
     }
     OImageSlot *slot = memory_pool_item_get(renderer->imagePool, (MHandle){.id = image.id, .age = image.age});
@@ -323,9 +339,8 @@ void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) 
         return;
     }
 
-    u32 index = surface.id - 1;
     ID3D11Texture2D *backBuffer = NULL;
-    HRESULT hr = IDXGISwapChain1_GetBuffer(renderer->layerList.data[index].swapchain, 0, &IID_ID3D11Texture2D, (void **)&backBuffer);
+    HRESULT hr = IDXGISwapChain1_GetBuffer(layerSlot->swapchain, 0, &IID_ID3D11Texture2D, (void **)&backBuffer);
     if (FAILED(hr)) {
         LOG_ERROR("IDXGISwapChain1::GetBuffer failed (hr=0x%08lx)", hr);
         return;
@@ -335,7 +350,7 @@ void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) 
     ID3D11Texture2D_GetDesc(backBuffer, &bd);
     if (bd.Width == slot->desc.width && bd.Height == slot->desc.height && bd.Format == dxgi_format(slot->desc.format)) {
         ID3D11DeviceContext_CopyResource(renderer->context, (ID3D11Resource *)backBuffer, (ID3D11Resource *)slot->texture);
-        renderer->presentMask |= 1u << index;
+        layerSlot->shouldPresent = true;
     } else {
         LOG_WARN("renderer_surface_blit: image %ux%u does not match the swapchain %ux%u", slot->desc.width, slot->desc.height, bd.Width, bd.Height);
     }

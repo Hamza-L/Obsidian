@@ -21,6 +21,14 @@ typedef struct OImageSlot {
     ID3D11RenderTargetView *rtv;
 } OImageSlot;
 
+typedef struct OLayerSlot {
+    IDXGISwapChain1 *swapchain;
+    bool vsync;
+    bool inFrame;
+    bool shouldPresent;
+    uint32_t age;
+} OLayerSlot;
+
 struct ORenderer {
     ID3D11Device *device;
     ID3D11DeviceContext *context;
@@ -33,14 +41,9 @@ struct ORenderer {
     MPool imagePool;
 
     struct {
-        struct {
-            IDXGISwapChain1 *swapchain;
-            bool vsync;
-            uint32_t age;
-        } data[MAX_LAYER_COUNT];
+        OLayerSlot data[MAX_LAYER_COUNT];
     } layerList;
 
-    uint32_t presentMask;
     bool rendering;
 };
 
