@@ -6,6 +6,7 @@
 
 #include "core/o_typedefs.h"
 
+#include "input/o_input_internal.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -138,7 +139,9 @@ bool window_poll_events(void) {
                                                inMode:NSDefaultRunLoopMode
                                               dequeue:YES];
         while (event) {
+            OInputEvent input_event = input_translate_event((__bridge void *)event);
             [NSApp sendEvent:event];
+            input_dispatch_event(input_event);
             event = [NSApp nextEventMatchingMask:NSEventMaskAny
                                        untilDate:NSDate.distantPast
                                           inMode:NSDefaultRunLoopMode

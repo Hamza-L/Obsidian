@@ -2,9 +2,14 @@
 #import <Carbon/Carbon.h>
 
 #include "input/o_input_internal.h"
-#include "o_log.h"
+#include "core/o_typedefs.h"
 
 #define VIRTUAL_KEY_CODE_COUNT 128
+
+#define UNICODE_DELETE 0x7F
+#define UNICODE_FIRST_PRINTABLE 0x20
+#define UNICODE_PRIVATE_USE_FIRST 0xE000
+#define UNICODE_PRIVATE_USE_LAST 0xF8FF
 
 static const OKey k_key_map[VIRTUAL_KEY_CODE_COUNT] = {
     [kVK_ANSI_A] = O_KEY_A, [kVK_ANSI_B] = O_KEY_B, [kVK_ANSI_C] = O_KEY_C, [kVK_ANSI_D] = O_KEY_D,
@@ -25,8 +30,6 @@ static const OKey k_key_map[VIRTUAL_KEY_CODE_COUNT] = {
     [kVK_LeftArrow] = O_KEY_LEFT, [kVK_RightArrow] = O_KEY_RIGHT,
     [kVK_UpArrow] = O_KEY_UP, [kVK_DownArrow] = O_KEY_DOWN,
 };
-
-static id g_monitor;
 
 static OModKeys map_modifiers(NSEventModifierFlags flags) {
     OModKeys mods = 0;
@@ -50,47 +53,58 @@ static NSPoint content_location(NSEvent *event) {
     return p;
 }
 
-static void push_key(OInputEventKind kind, NSEvent *event) {
-    const uint16_t key_code = (uint16_t)event.keyCode;
-    input_push(&(OInputEvent){
+static bool is_text_codepoint(u32 codepoint) {
+    const bool is_control = codepoint < UNICODE_FIRST_PRINTABLE || codepoint == UNICODE_DELETE;
+    const bool is_private_use = codepoint >= UNICODE_PRIVATE_USE_FIRST && codepoint <= UNICODE_PRIVATE_USE_LAST;
+    return !is_control && !is_private_use;
+}
+
+static OTextEvent translate_text(NSEvent *event) {
+    OTextEvent text = {0};
+    const bool is_shortcut = (event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagControl)) != 0;
+    if (is_shortcut) return text;
+
+    NSString *characters = event.characters;
+    u32 codepoints[O_MAX_TEXT_CODEPOINTS];
+    NSUInteger used = 0;
+    [characters getBytes:codepoints
+               maxLength:sizeof codepoints
+              usedLength:&used
+                encoding:NSUTF32LittleEndianStringEncoding
+                 options:0
+                   range:NSMakeRange(0, characters.length)
+          remainingRange:NULL];
+    for (NSUInteger i = 0; i < used / sizeof codepoints[0]; i++) {
+        if (is_text_codepoint(codepoints[i])) text.codepoints[text.count++] = codepoints[i];
+    }
+    return text;
+}
+
+static OInputEvent translate_key(OInputEventKind kind, NSEvent *event) {
+    const u16 key_code = (u16)event.keyCode;
+    return (OInputEvent){
         .kind = kind,
         .data.key = {
             .key = key_code < VIRTUAL_KEY_CODE_COUNT ? k_key_map[key_code] : O_KEY_UNKNOWN,
             .modifiers = map_modifiers(event.modifierFlags),
             .native_key_code = key_code,
             .is_repeat = event.isARepeat,
+            .text = kind == O_INPUT_KEY_DOWN ? translate_text(event) : (OTextEvent){0},
         },
-    });
+    };
 }
 
-static void push_text(NSEvent *event) {
-    const bool is_shortcut = (event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagControl)) != 0;
-    if (is_shortcut) return;
-
-    NSString *text = event.characters;
-    u32 codepoints[32];
-    NSUInteger used = 0;
-    [text getBytes:codepoints
-             maxLength:sizeof codepoints
-            usedLength:&used
-              encoding:NSUTF32LittleEndianStringEncoding
-               options:0
-                 range:NSMakeRange(0, text.length)
-        remainingRange:NULL];
-    for (NSUInteger i = 0; i < used / sizeof codepoints[0]; i++) input_push_text(codepoints[i]);
-}
-
-static void push_mouse_move(NSEvent *event) {
-    NSPoint p = content_location(event);
-    input_push(&(OInputEvent){
+static OInputEvent translate_mouse_move(NSEvent *event) {
+    const NSPoint p = content_location(event);
+    return (OInputEvent){
         .kind = O_INPUT_MOUSE_MOVE,
         .data.move = {.x = (f32)p.x, .y = (f32)p.y, .delta_x = (f32)event.deltaX, .delta_y = (f32)event.deltaY},
-    });
+    };
 }
 
-static void push_mouse_button(OInputEventKind kind, NSEvent *event) {
-    NSPoint p = content_location(event);
-    input_push(&(OInputEvent){
+static OInputEvent translate_mouse_button(OInputEventKind kind, NSEvent *event) {
+    const NSPoint p = content_location(event);
+    return (OInputEvent){
         .kind = kind,
         .data.button = {
             .button = map_mouse_button(event.buttonNumber),
@@ -98,45 +112,34 @@ static void push_mouse_button(OInputEventKind kind, NSEvent *event) {
             .x = (f32)p.x,
             .y = (f32)p.y,
         },
-    });
+    };
 }
 
-static void push_scroll(NSEvent *event) {
-    input_push(&(OInputEvent){
+static OInputEvent translate_scroll(NSEvent *event) {
+    return (OInputEvent){
         .kind = O_INPUT_MOUSE_SCROLL,
         .data.scroll = {.delta_x = (f32)event.scrollingDeltaX, .delta_y = (f32)event.scrollingDeltaY},
-    });
+    };
 }
 
-static NSEvent *translate(NSEvent *event) {
+OInputEvent input_translate_event(void *platformEvent) {
+    NSEvent *event = (__bridge NSEvent *)platformEvent;
     switch (event.type) {
-    case NSEventTypeKeyDown: push_key(O_INPUT_KEY_DOWN, event); push_text(event); break;
-    case NSEventTypeKeyUp: push_key(O_INPUT_KEY_UP, event); break;
+    case NSEventTypeKeyDown: return translate_key(O_INPUT_KEY_DOWN, event);
+    case NSEventTypeKeyUp: return translate_key(O_INPUT_KEY_UP, event);
     case NSEventTypeMouseMoved:
     case NSEventTypeLeftMouseDragged:
     case NSEventTypeRightMouseDragged:
-    case NSEventTypeOtherMouseDragged: push_mouse_move(event); break;
+    case NSEventTypeOtherMouseDragged: return translate_mouse_move(event);
     case NSEventTypeLeftMouseDown:
     case NSEventTypeRightMouseDown:
-    case NSEventTypeOtherMouseDown: push_mouse_button(O_INPUT_MOUSE_DOWN, event); break;
+    case NSEventTypeOtherMouseDown: return translate_mouse_button(O_INPUT_MOUSE_DOWN, event);
     case NSEventTypeLeftMouseUp:
     case NSEventTypeRightMouseUp:
-    case NSEventTypeOtherMouseUp: push_mouse_button(O_INPUT_MOUSE_UP, event); break;
-    case NSEventTypeScrollWheel: push_scroll(event); break;
-    default: break;
+    case NSEventTypeOtherMouseUp: return translate_mouse_button(O_INPUT_MOUSE_UP, event);
+    case NSEventTypeScrollWheel: return translate_scroll(event);
+    default: return (OInputEvent){0};
     }
-    return event;
 }
 
-void input_platform_init(void) {
-    [NSApplication sharedApplication];
-    const NSEventMask mask = NSEventMaskKeyDown | NSEventMaskKeyUp | NSEventMaskMouseMoved |
-                             NSEventMaskLeftMouseDragged | NSEventMaskRightMouseDragged | NSEventMaskOtherMouseDragged |
-                             NSEventMaskLeftMouseDown | NSEventMaskLeftMouseUp | NSEventMaskRightMouseDown |
-                             NSEventMaskRightMouseUp | NSEventMaskOtherMouseDown | NSEventMaskOtherMouseUp |
-                             NSEventMaskScrollWheel;
-    g_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:mask handler:^NSEvent *(NSEvent *event) {
-        return translate(event);
-    }];
-    if (!g_monitor) LOG_ERROR("addLocalMonitorForEventsMatchingMask failed");
-}
+void input_platform_init(void) {}
