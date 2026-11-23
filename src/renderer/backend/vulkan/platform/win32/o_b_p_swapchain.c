@@ -613,7 +613,7 @@ static bool dxgi_init(void *native_window_handle, Swapchain *sc) {
             LOG_ERROR("QueryInterface(IDXGISwapChain2) failed (hr=0x%08lx)", hr);
             return false;
         }
-        hr = IDXGISwapChain2_SetMaximumFrameLatency(sc2, 1);
+        hr = IDXGISwapChain2_SetMaximumFrameLatency(sc2, 2);
         sc->frameLatencyWaitable = IDXGISwapChain2_GetFrameLatencyWaitableObject(sc2);
         IDXGISwapChain2_Release(sc2);
         if (FAILED(hr) || !sc->frameLatencyWaitable) {
