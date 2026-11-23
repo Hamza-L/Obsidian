@@ -109,10 +109,7 @@ static inline OInputEvent translate_char_input(wchar_t c) {
 static inline OInputEvent translate_mouse_move(LPARAM lparam) {
     const f32 x = (f32)GET_X_LPARAM(lparam);
     const f32 y = (f32)GET_Y_LPARAM(lparam);
-    g_ctx.last_x = x;
-    g_ctx.last_y = y;
-    g_ctx.has_last = true;
-    return (OInputEvent){
+    const OInputEvent event = {
         .kind = O_INPUT_MOUSE_MOVE,
         .data.move = {
             .x = x,
@@ -121,6 +118,10 @@ static inline OInputEvent translate_mouse_move(LPARAM lparam) {
             .delta_y = g_ctx.has_last ? y - g_ctx.last_y : 0.0f,
         },
     };
+    g_ctx.last_x = x;
+    g_ctx.last_y = y;
+    g_ctx.has_last = true;
+    return event;
 }
 
 static inline OInputEvent translate_mouse_button(OInputEventKind kind, UINT msg, LPARAM lparam) {
