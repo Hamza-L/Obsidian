@@ -468,7 +468,8 @@ void renderer_wait_idle(ORenderer *renderer) {
     vkDeviceWaitIdle(renderer->device);
 }
 
-bool renderer_begin_frame(ORenderer *renderer) {
+bool renderer_begin_frame(ORenderer *renderer, OSurface surface) {
+    (void)surface;
     u32 slot = (u32)(renderer->frameIndex % MAX_FRAMES_IN_FLIGHT);
 
     for (u32 i = 0; i < MAX_LAYER_COUNT; i++) {
@@ -508,7 +509,8 @@ bool renderer_begin_frame(ORenderer *renderer) {
     return true;
 }
 
-void renderer_end_frame_and_present(ORenderer *renderer) {
+void renderer_end_frame_and_present(ORenderer *renderer, OSurface surface) {
+    (void)surface;
     u32 slot = (u32)(renderer->frameIndex % MAX_FRAMES_IN_FLIGHT);
 
     VkSemaphore waitSemaphores[MAX_LAYER_COUNT];

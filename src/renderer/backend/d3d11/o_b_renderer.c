@@ -141,12 +141,14 @@ void renderer_wait_idle(ORenderer *renderer) {
     ID3D11DeviceContext_Flush(renderer->context);
 }
 
-bool renderer_begin_frame(ORenderer *renderer) {
+bool renderer_begin_frame(ORenderer *renderer, OSurface surface) {
+    (void)surface;
     renderer->presentMask = 0;
     return true;
 }
 
-void renderer_end_frame_and_present(ORenderer *renderer) {
+void renderer_end_frame_and_present(ORenderer *renderer, OSurface surface) {
+    (void)surface;
     for (u32 i = 0; i < MAX_LAYER_COUNT; i++) {
         IDXGISwapChain1 *swapchain = renderer->layerList.data[i].swapchain;
         if (!swapchain || !(renderer->presentMask & (1u << i))) continue;

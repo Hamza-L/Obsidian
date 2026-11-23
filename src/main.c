@@ -28,7 +28,7 @@ static void on_refresh_render(OWindow *window, void *user) {
 
     int32_t width, height;
     window_get_pixel_size(window, &width, &height);
-    if (renderer_begin_frame(renderer)) {
+    if (renderer_begin_frame(renderer, surface)) {
         {
             renderer_begin_render(
                 renderer,
@@ -41,7 +41,7 @@ static void on_refresh_render(OWindow *window, void *user) {
             renderer_end_render(renderer);
         }
         renderer_surface_blit(renderer, surface, rt);
-        renderer_end_frame_and_present(renderer);
+        renderer_end_frame_and_present(renderer, surface);
     }
 }
 

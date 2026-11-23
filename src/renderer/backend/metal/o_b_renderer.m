@@ -236,7 +236,8 @@ void renderer_wait_idle(ORenderer *renderer) {
     }
 }
 
-bool renderer_begin_frame(ORenderer *renderer) {
+bool renderer_begin_frame(ORenderer *renderer, OSurface surface) {
+    (void)surface;
     u64 slot = renderer->frameIndex % MAX_FRAMES_IN_FLIGHT;
     if (renderer->frameIndex >= MAX_FRAMES_IN_FLIGHT) {
         if (![renderer->sharedEvent waitUntilSignaledValue:(renderer->frameIndex - MAX_FRAMES_IN_FLIGHT + 1) timeoutMS:1000]){
@@ -256,7 +257,8 @@ bool renderer_begin_frame(ORenderer *renderer) {
     return true;
 }
 
-void renderer_end_frame_and_present(ORenderer *renderer) {
+void renderer_end_frame_and_present(ORenderer *renderer, OSurface surface) {
+    (void)surface;
     [renderer->cmdBuffer endCommandBuffer];
 
     [renderer->residencySet commit];

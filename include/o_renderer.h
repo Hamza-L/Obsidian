@@ -206,8 +206,8 @@ ORenderer *renderer_create(ORendererDesc desc);
 void renderer_destroy(ORenderer *renderer);
 void renderer_wait_idle(ORenderer *renderer);
 
-bool renderer_begin_frame(ORenderer *renderer);
-void renderer_end_frame_and_present(ORenderer *renderer);
+bool renderer_begin_frame(ORenderer *renderer, OSurface surface);
+void renderer_end_frame_and_present(ORenderer *renderer, OSurface surface);
 
 void renderer_begin_render(ORenderer *renderer, ORenderTargets targets);
 void renderer_end_render(ORenderer *renderer);
