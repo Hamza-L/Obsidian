@@ -75,11 +75,19 @@ typedef enum OMouseButton {
     O_MOUSE_BUTTON_OTHER = 3,
 } OMouseButton;
 
+#define O_MAX_TEXT_CODEPOINTS 8
+
+typedef struct OTextEvent {
+    uint32_t codepoints[O_MAX_TEXT_CODEPOINTS];
+    uint8_t count;
+} OTextEvent;
+
 typedef struct OKeyEvent {
     OKey key;
     OModKeys modifiers;
     uint16_t native_key_code;
     bool is_repeat;
+    OTextEvent text;
 } OKeyEvent;
 
 typedef struct OMouseButtonEvent {

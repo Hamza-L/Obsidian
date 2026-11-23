@@ -41,6 +41,10 @@ void input_unsubscribe(OInputSubscriber *subscriber) {
     subscriber->user_data = NULL;
 }
 
+static inline void trace_text(OTextEvent text) {
+    for (u32 i = 0; i < text.count; i++) LOG_DEBUG("text     U+%04X", text.codepoints[i]);
+}
+
 static inline void trace(OInputEvent event) {
     if (!INPUT_TRACE) return;
     switch (event.kind) {
@@ -48,9 +52,10 @@ static inline void trace(OInputEvent event) {
     case O_INPUT_KEY_UP:
         LOG_DEBUG("key %-4s key=%d native=%u mods=0x%x repeat=%d", event.kind == O_INPUT_KEY_DOWN ? "down" : "up",
                   event.data.key.key, event.data.key.native_key_code, event.data.key.modifiers, event.data.key.is_repeat);
+        trace_text(event.data.key.text);
         break;
     case O_INPUT_TEXT:
-        LOG_DEBUG("text     U+%04X", event.data.codepoint);
+        trace_text(event.data.text);
         break;
     case O_INPUT_MOUSE_MOVE:
         LOG_DEBUG("mouse move x=%.0f y=%.0f dx=%.0f dy=%.0f", event.data.move.x, event.data.move.y, event.data.move.delta_x,
@@ -68,6 +73,11 @@ static inline void trace(OInputEvent event) {
     }
 }
 
+static inline void dispatch_text(OInputSubscriber *s, OTextEvent text) {
+    if (!s->callbacks.on_text_input) return;
+    for (u32 i = 0; i < text.count; i++) s->callbacks.on_text_input(s, text.codepoints[i], s->user_data);
+}
+
 void input_dispatch_event(OInputEvent event) {
     if(event.kind == O_INPUT_NONE) return;
     trace(event);
@@ -76,9 +86,12 @@ void input_dispatch_event(OInputEvent event) {
         if (!s->online) continue;
         const OInputCallbacks *cb = &s->callbacks;
         switch (event.kind) {
-        case O_INPUT_KEY_DOWN: if (cb->on_key_down) cb->on_key_down(s, event.data.key, s->user_data); break;
+        case O_INPUT_KEY_DOWN:
+            if (cb->on_key_down) cb->on_key_down(s, event.data.key, s->user_data);
+            dispatch_text(s, event.data.key.text);
+            break;
         case O_INPUT_KEY_UP: if (cb->on_key_up) cb->on_key_up(s, event.data.key, s->user_data); break;
-        case O_INPUT_TEXT: if (cb->on_text_input) cb->on_text_input(s, event.data.codepoint, s->user_data); break;
+        case O_INPUT_TEXT: dispatch_text(s, event.data.text); break;
         case O_INPUT_MOUSE_MOVE: if (cb->on_mouse_move) cb->on_mouse_move(s, event.data.move, s->user_data); break;
         case O_INPUT_MOUSE_DOWN: if (cb->on_mouse_down) cb->on_mouse_down(s, event.data.button, s->user_data); break;
         case O_INPUT_MOUSE_UP: if (cb->on_mouse_up) cb->on_mouse_up(s, event.data.button, s->user_data); break;

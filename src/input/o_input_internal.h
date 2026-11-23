@@ -20,7 +20,7 @@ typedef struct OInputEvent {
     OInputEventKind kind;
     union {
         OKeyEvent key;
-        uint32_t codepoint;
+        OTextEvent text;
         OMouseMoveEvent move;
         OMouseButtonEvent button;
         OMouseScrollEvent scroll;

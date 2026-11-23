@@ -88,7 +88,7 @@ static inline OInputEvent translate_text_input(u32 codepoint) {
     const bool is_control = codepoint < UNICODE_FIRST_PRINTABLE || codepoint == UNICODE_DELETE;
     const bool is_private_use = codepoint >= UNICODE_PRIVATE_USE_FIRST && codepoint <= UNICODE_PRIVATE_USE_LAST;
     if (is_control || is_private_use) return(OInputEvent){0};
-    return (OInputEvent){.kind = O_INPUT_TEXT, .data.codepoint = codepoint};
+    return (OInputEvent){.kind = O_INPUT_TEXT, .data.text = {.codepoints = {codepoint}, .count = 1}};
 }
 
 static inline OInputEvent translate_char_input(wchar_t c) {
