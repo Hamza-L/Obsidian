@@ -32,13 +32,23 @@ typedef struct {
     } pso;
 } OShaderSlot;
 
+typedef struct {
+    NSView *view;
+    CAMetalLayer *layer;
+    id<CAMetalDrawable> currentDrawable;
+    id<MTL4CommandAllocator> cmdAllocator[MAX_FRAMES_IN_FLIGHT]; //memory that holds the commands
+    uint64_t frameSignal[MAX_FRAMES_IN_FLIGHT]; //sharedEvent value reached once the frame recorded with cmdAllocator[i] is done
+    uint32_t frameSlot;
+    uint32_t age;
+    bool inFrame;
+} OLayerSlot;
+
 struct ORenderer{
     id<MTLDevice> device;
     id<MTL4CommandQueue> queue;
     id<MTL4Compiler> compiler;
     id<MTLResidencySet> residencySet;
 
-    id<MTL4CommandAllocator> cmdAllocator[MAX_FRAMES_IN_FLIGHT]; //memory that holds the commands
     id<MTL4CommandBuffer> cmdBuffer; //where we record the commands and commit them to the queue
     id<MTLSharedEvent> sharedEvent; //sync object
 
@@ -47,12 +57,7 @@ struct ORenderer{
     id<MTL4RenderCommandEncoder> renderEncoder;
 
     struct {
-        struct {
-            NSView *view;
-            CAMetalLayer *layer;
-            id<CAMetalDrawable> currentDrawable;
-            uint32_t age;
-        } data[MAX_LAYER_COUNT] ;
+        OLayerSlot data[MAX_LAYER_COUNT];
     } layerList;
 
     MPool bufferPool;

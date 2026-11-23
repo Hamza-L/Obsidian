@@ -92,7 +92,7 @@ static void drain_all_images(ORenderer* renderer) {
 
 static void drain_retired_images(ORenderer* renderer) {
     for (u32 i = 0; i < renderer->retireList.count; i++) {
-        if ( renderer->retireList.data[i].frameAtDeletion  + MAX_FRAMES_IN_FLIGHT <= renderer->frameIndex) {
+        if (renderer->retireList.data[i].frameAtDeletion < renderer->sharedEvent.signaledValue) {
             OImage img = renderer->retireList.data[i].image;
             MHandle h = (MHandle){.id = img.id, .age = img.age};
             OImageSlot* imgSlot = memory_pool_item_at(renderer->imagePool, img.id);
@@ -149,7 +149,7 @@ ORenderer *renderer_create(ORendererDesc desc) {
         g_renderer.imageTable.label = @"Image Table";
     }
 
-    g_renderer.frameArena = [device newBufferWithLength: FRAME_ARENA_SIZE * MAX_FRAMES_IN_FLIGHT
+    g_renderer.frameArena = [device newBufferWithLength: FRAME_ARENA_SIZE * MAX_FRAMES_IN_FLIGHT * MAX_LAYER_COUNT
                                                 options:MTLResourceStorageModeShared];
     if (!g_renderer.frameArena) {
         LOG_ERROR("failed to create frame arena\n");
@@ -204,12 +204,6 @@ ORenderer *renderer_create(ORendererDesc desc) {
         LOG_ERROR("failed to create shared event object"); return NULL;
     }
 
-    for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        if (!(g_renderer.cmdAllocator[i] = [g_renderer.device newCommandAllocator])) {
-            LOG_ERROR("failed to create command allocator for index: %d", i); return NULL;
-        }
-    }
-
     g_renderer.imagePool = memory_pool_create(sizeof(OImageSlot), MAX_TEXTURE_BIND_COUNT);
     g_renderer.shaderPool = memory_pool_create(sizeof(OShaderSlot), MAX_SHADER_COUNT);
     g_renderer.retireList.capacity = INIT_IMAGE_RETIRE_COUNT;
@@ -236,29 +230,44 @@ void renderer_wait_idle(ORenderer *renderer) {
     }
 }
 
+static OLayerSlot *layer_slot_get(ORenderer *renderer, OSurface surface) {
+    if (!surface.id || surface.id > MAX_LAYER_COUNT) return NULL;
+    OLayerSlot *layerSlot = &renderer->layerList.data[surface.id - 1];
+    return layerSlot->layer && layerSlot->age == surface.age ? layerSlot : NULL;
+}
+
 bool renderer_begin_frame(ORenderer *renderer, OSurface surface) {
-    (void)surface;
-    u64 slot = renderer->frameIndex % MAX_FRAMES_IN_FLIGHT;
-    if (renderer->frameIndex >= MAX_FRAMES_IN_FLIGHT) {
-        if (![renderer->sharedEvent waitUntilSignaledValue:(renderer->frameIndex - MAX_FRAMES_IN_FLIGHT + 1) timeoutMS:1000]){
-            LOG_WARN("GPU did not finish frame %llu within 1000ms\n", renderer->frameIndex - MAX_FRAMES_IN_FLIGHT + 1);
-            return false;//return without recording anything new to give it another frame.
-        }
+    OLayerSlot *layerSlot = layer_slot_get(renderer, surface);
+    if (!layerSlot || layerSlot->inFrame) {
+        LOG_WARN("renderer_begin_frame: surface is destroyed or already in a frame\n");
+        return false;
+    }
+
+    u32 slot = layerSlot->frameSlot;
+    if (![renderer->sharedEvent waitUntilSignaledValue:layerSlot->frameSignal[slot] timeoutMS:1000]){
+        LOG_WARN("GPU did not finish frame %llu within 1000ms\n", layerSlot->frameSignal[slot]);
+        return false;//return without recording anything new to give it another frame.
     }
 
     drain_retired_images(renderer);
 
-    [renderer->cmdAllocator[slot] reset]; //cmd allocator is an arena. here reset moves the pointer back to the start of the slot
+    [layerSlot->cmdAllocator[slot] reset]; //cmd allocator is an arena. here reset moves the pointer back to the start of the slot
 
-    renderer->frameArenaHead = slot * FRAME_ARENA_SIZE;
+    renderer->frameArenaHead = ((surface.id - 1) * MAX_FRAMES_IN_FLIGHT + slot) * FRAME_ARENA_SIZE;
     renderer->frameArenaEnd = renderer->frameArenaHead + FRAME_ARENA_SIZE;
 
-    [renderer->cmdBuffer beginCommandBufferWithAllocator:renderer->cmdAllocator[slot]];
+    [renderer->cmdBuffer beginCommandBufferWithAllocator:layerSlot->cmdAllocator[slot]];
+    layerSlot->inFrame = true;
     return true;
 }
 
 void renderer_end_frame_and_present(ORenderer *renderer, OSurface surface) {
-    (void)surface;
+    OLayerSlot *layerSlot = layer_slot_get(renderer, surface);
+    if (!layerSlot || !layerSlot->inFrame) {
+        LOG_WARN("renderer_end_frame_and_present: surface is destroyed or not in a frame\n");
+        return;
+    }
+
     [renderer->cmdBuffer endCommandBuffer];
 
     [renderer->residencySet commit];
@@ -266,12 +275,10 @@ void renderer_end_frame_and_present(ORenderer *renderer, OSurface surface) {
     [renderer->queue commit: &renderer->cmdBuffer count: 1];
     [renderer->queue signalEvent: renderer->sharedEvent value: renderer->frameIndex + 1];
 
-    for (u32 i = 0; i < MAX_LAYER_COUNT; i++) {
-        if (renderer->layerList.data[i].currentDrawable) {
-            [renderer->queue signalDrawable:renderer->layerList.data[i].currentDrawable];
-            [renderer->layerList.data[i].currentDrawable present];
-            renderer->layerList.data[i].currentDrawable = nil;
-        }
+    if (layerSlot->currentDrawable) {
+        [renderer->queue signalDrawable:layerSlot->currentDrawable];
+        [layerSlot->currentDrawable present];
+        layerSlot->currentDrawable = nil;
     }
 
     // if (renderer->frameIndex >= 5) {
@@ -279,6 +286,9 @@ void renderer_end_frame_and_present(ORenderer *renderer, OSurface surface) {
     // }
 
     renderer->frameIndex++;
+    layerSlot->frameSignal[layerSlot->frameSlot] = renderer->frameIndex;
+    layerSlot->frameSlot = (layerSlot->frameSlot + 1) % MAX_FRAMES_IN_FLIGHT;
+    layerSlot->inFrame = false;
 }
 
 static OImageDesc image_desc_resolve(OImageDesc desc) {
@@ -387,6 +397,16 @@ OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle
         return (OSurface){0};
     }
 
+    OLayerSlot *layerSlot = &renderer->layerList.data[freeID - 1];
+    for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        layerSlot->cmdAllocator[i] = [renderer->device newCommandAllocator];
+        if (!layerSlot->cmdAllocator[i]) {
+            LOG_ERROR("failed to create command allocator for index: %u", i);
+            for (u32 j = 0; j < i; j++) layerSlot->cmdAllocator[j] = nil;
+            return (OSurface){0};
+        }
+    }
+
     CAMetalLayer *layer = [CAMetalLayer layer];
     layer.device = renderer->device;
     layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
@@ -402,20 +422,20 @@ OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle
 
     [renderer->queue addResidencySet:layer.residencySet];
 
-    renderer->layerList.data[freeID - 1].view = view;
-    renderer->layerList.data[freeID - 1].layer = layer;
-    u32 currAge = renderer->layerList.data[freeID - 1].age;
-    return (OSurface){freeID, currAge};
+    layerSlot->view = view;
+    layerSlot->layer = layer;
+    return (OSurface){freeID, layerSlot->age};
 }
 
 void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) {
-    if (!surface.id || surface.age != renderer->layerList.data[surface.id - 1].age) {
-        LOG_WARN("attempting to present an already destroyed surface\n");
+    OLayerSlot *layerSlot = layer_slot_get(renderer, surface);
+    if (!layerSlot || !layerSlot->inFrame) {
+        LOG_WARN("renderer_surface_blit: surface is destroyed or not in a frame\n");
         return;
     }
 
-    NSView *view = renderer->layerList.data[surface.id - 1].view;
-    CAMetalLayer *layer= renderer->layerList.data[surface.id - 1].layer;
+    NSView *view = layerSlot->view;
+    CAMetalLayer *layer = layerSlot->layer;
 
     if (layer.contentsScale != view.window.backingScaleFactor) {
         layer.contentsScale = view.window.backingScaleFactor;
@@ -446,7 +466,7 @@ void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) 
             [computeEncoder barrierAfterStages:MTLStageBlit beforeQueueStages:MTLStageDispatch | MTLStageFragment visibilityOptions:MTL4VisibilityOptionNone];
             [computeEncoder endEncoding];
 
-            renderer->layerList.data[surface.id - 1].currentDrawable = currentDrawable;
+            layerSlot->currentDrawable = currentDrawable;
         }
     }
 }
@@ -473,16 +493,25 @@ void renderer_image_destroy(ORenderer *renderer, OImage image) {
 }
 
 void renderer_surface_destroy(ORenderer *renderer, OSurface surface) {
-    if (!surface.id || surface.age != renderer->layerList.data[surface.id - 1].age) {
+    OLayerSlot *layerSlot = layer_slot_get(renderer, surface);
+    if (!layerSlot) {
         LOG_WARN("attempting to destroy an already destroyed surface\n");
         return;
     }
 
-    [renderer->queue removeResidencySet:renderer->layerList.data[surface.id - 1].layer.residencySet];
+    u32 lastSlot = (layerSlot->frameSlot + MAX_FRAMES_IN_FLIGHT - 1) % MAX_FRAMES_IN_FLIGHT;
+    if (![renderer->sharedEvent waitUntilSignaledValue:layerSlot->frameSignal[lastSlot] timeoutMS:5000]) {
+        LOG_WARN("GPU has been busy with the surface for longer than 5s\n");
+    }
 
-    renderer->layerList.data[surface.id - 1].layer = nil;
-    renderer->layerList.data[surface.id - 1].view = nil;
-    renderer->layerList.data[surface.id - 1].age++;
+    [renderer->queue removeResidencySet:layerSlot->layer.residencySet];
+
+    for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        layerSlot->cmdAllocator[i] = nil;
+    }
+    layerSlot->layer = nil;
+    layerSlot->view = nil;
+    layerSlot->age++;
 }
 
 void renderer_destroy(ORenderer *renderer){
@@ -493,8 +522,10 @@ void renderer_destroy(ORenderer *renderer){
     [renderer->residencySet removeAllocation: renderer->imageTable];
     [renderer->residencySet removeAllocation: renderer->frameArena];
 
-    for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        renderer->cmdAllocator[i] = nil;
+    for (u32 i = 0; i < MAX_LAYER_COUNT; i++) {
+        for (u32 j = 0; j < MAX_FRAMES_IN_FLIGHT; j++) {
+            renderer->layerList.data[i].cmdAllocator[j] = nil;
+        }
     }
 
     renderer->sharedEvent = nil;
