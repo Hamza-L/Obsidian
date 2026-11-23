@@ -18,16 +18,23 @@
 typedef struct OShaderSlot OShaderSlot;
 typedef struct OImageSlot OImageSlot;
 
+typedef struct OLayerSlot {
+    void *hwnd;
+    Swapchain *swapchain;
+    VkCommandBuffer cmdBuffer[MAX_FRAMES_IN_FLIGHT];
+    VkFence fences[MAX_FRAMES_IN_FLIGHT];
+    uint32_t frameSlot;
+    uint32_t age;
+    bool inFrame;
+    bool shouldPresent;
+} OLayerSlot;
+
 struct ORenderer {
     VkInstance instance;
     VkDevice device;
     VkPhysicalDevice physDevice;
 
     VkCommandPool cmdPool;
-    VkCommandBuffer cmdBuffer[MAX_FRAMES_IN_FLIGHT];
-    VkFence fences[MAX_FRAMES_IN_FLIGHT];
-    uint64_t frameIndex;
-    uint32_t presentMask;
 
     struct {
         VkQueue graphics;
@@ -37,11 +44,7 @@ struct ORenderer {
     } queue;
 
     struct {
-        struct {
-            void *hwnd;
-            Swapchain *swapchain;
-            uint32_t age;
-        } data[MAX_LAYER_COUNT] ;
+        OLayerSlot data[MAX_LAYER_COUNT];
     } layerList;
 
     MPool shaderPool;
