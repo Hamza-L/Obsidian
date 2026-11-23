@@ -74,9 +74,7 @@ int main(int argc, char **argv) {
     renderData.surface = surface;
     window_set_callbacks(window, (OWindowCallbacks){.on_refresh = on_refresh_render}, &renderData);
 
-    while (window_poll_events()) {
-        input_poll_events();
-    }
+    while (window_poll_events()) {}
 
     renderer_destroy(renderer);
     window_destroy(window);

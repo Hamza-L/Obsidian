@@ -8,8 +8,6 @@ static void on_key(OInputSubscriber *input, OKeyEvent event, void *user) {
 }
 
 void test_o_input(void) {
-    CHECK(!input_poll_events());
-
     int hits = 0;
     OInputSubscriber *subs[8];
     for (int i = 0; i < 8; i++) {
@@ -22,7 +20,6 @@ void test_o_input(void) {
     OInputSubscriber *reused = input_subscribe((OInputCallbacks){0}, NULL);
     CHECK(reused == subs[3]);
 
-    CHECK(!input_poll_events());
     CHECK(hits == 0);
 
     for (int i = 0; i < 8; i++) input_unsubscribe(subs[i]);
