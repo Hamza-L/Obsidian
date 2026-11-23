@@ -97,7 +97,6 @@ typedef struct OMouseScrollEvent {
     float delta_x, delta_y;
 } OMouseScrollEvent;
 
-
 typedef void (*OnKeyFn)(OInputSubscriber *input, OKeyEvent event, void *user_data);
 typedef void (*OnTextInputFn)(OInputSubscriber *input, uint32_t codepoint, void *user_data);
 
@@ -129,6 +128,5 @@ typedef struct OInputCallbacks {
 
 OInputSubscriber *input_subscribe(const OInputCallbacks callbacks, void *userdata);
 void input_unsubscribe(OInputSubscriber *subscriber);
-bool input_poll_events(void);
 
 #endif //O_INPUT_H

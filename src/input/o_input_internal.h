@@ -3,6 +3,8 @@
 
 #include "o_input.h"
 
+enum{ MAX_INPUT_SUBSCRIBERS = 8};
+
 typedef enum OInputEventKind {
     O_INPUT_KEY_DOWN,
     O_INPUT_KEY_UP,
@@ -24,12 +26,10 @@ typedef struct OInputEvent {
     } data;
 } OInputEvent;
 
-// defined in the respective platform (macos/win32)
 void input_platform_init(void);
 
 // used the respective platform to push events to our input backend
-void input_push(const OInputEvent *event);
-void input_push_text(uint32_t codepoint);
-uint32_t utf16_decode_pair(uint16_t high, uint16_t low);
+OInputEvent input_translate_event(void *platformEvent);
+void input_dispatch_event(OInputEvent event); //definition in TU o_input.c
 
 #endif

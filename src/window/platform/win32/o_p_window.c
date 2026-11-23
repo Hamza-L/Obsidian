@@ -2,11 +2,14 @@
 #include <windows.h>
 #include <windowsx.h>
 #include <dwmapi.h>
+#include <Xinput.h>
 
 #include "o_log.h"
 #include "o_window.h"
 #include "core/o_typedefs.h"
 #include "core/o_alloc.h"
+
+#include "input/o_input_internal.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -26,6 +29,8 @@ static struct {
     u32 window_count;
 } g_app;
 
+typedef struct {u8 r,g,b,a;} OColor;
+
 typedef struct {
     const char title[MAX_TITLE_LEN];
     u32 height;
@@ -41,7 +46,6 @@ struct OWindow {
         void *data;
         i32 width;
         i32 height;
-        BITMAPINFO info;
     } bitmap;
 
     void *userdata;
@@ -82,13 +86,31 @@ static u32 pack_bgra(u8 r, u8 g, u8 b, u8 a) {
     return ((u32)a << 24) | ((u32)r << 16) | ((u32)g << 8) | (u32)b;
 }
 
-static void color_bitmap(void *data, i32 width, i32 height, i32 offsetX, i32 offsetY) {
+OColor unpack_bgra(u32 rgba) {
+    return (OColor) {
+        .r = rgba & 0xFF,
+        .g = (rgba >> 8) & 0xFF,
+        .b = (rgba >> 16) & 0xFF,
+        .a = (rgba >> 24) & 0xFF};
+}
+
+// static void color_bitmap(void *data, i32 width, i32 height, OColor color) {
+//     u32 *pixel = data;
+//     for (i32 i = 0; i < height; ++i) {
+//         for (i32 j = 0; j < width; ++j) {
+//             *pixel++ = pack_bgra(color.r,color.g, color.b, color.a);
+//         }
+//     }
+// }
+
+
+static void color_bitmap_with_gradient(void *data, i32 width, i32 height, i32 offsetX, i32 offsetY) {
     u32 *pixel = data;
     for (i32 i = 0; i < height; ++i) {
         for (i32 j = 0; j < width; ++j) {
-            u8 r = (u8)(j + offsetX);
-            u8 g = (u8)(255 - (255 * (i + j)) / (height + width));
-            u8 b = (u8)(i + offsetY);
+            u8 r = (u8)(j - offsetX);
+            u8 g = (u8)(255 - i + offsetX);
+            u8 b = (u8)(i - offsetY);
             *pixel++ = pack_bgra(r, g, b, 255);
         }
     }
@@ -105,33 +127,28 @@ static void window_create_bitmap(OWindow* w, i32 width, i32 height) {
     window_release_bitmap(w);
     if (width <= 0 || height <= 0) return;
 
-    BITMAPINFO bmapInfo = {0};
-    bmapInfo.bmiHeader.biSize = sizeof(bmapInfo.bmiHeader);
-    bmapInfo.bmiHeader.biWidth = width;
-    bmapInfo.bmiHeader.biHeight = -height; //negative to make bitmap use top-left is 0,0
-    bmapInfo.bmiHeader.biPlanes = 1; //default to 1
-    bmapInfo.bmiHeader.biBitCount = 32;
-    bmapInfo.bmiHeader.biCompression = BI_RGB;
-
-    w->bitmap.info = bmapInfo;
     w->bitmap.width = width;
     w->bitmap.height = height;
-
-    // NOTE(casey) Thank you to Chris Hecker of Spy Party Fame
-    // for clarifying the deal with StretchDIBits and BitBlt!
-    // no more DC for us
 
     size_t dataSize = width * height * sizeof(u8) * 4;
     w->bitmap.data = m_reserve(dataSize);
     m_commit(w->bitmap.data, dataSize);
 }
 
-static void update_window(OWindow *w, HDC dc, i32 width, i32 height) {
+static void refresh_window_backbuffer(OWindow *w, HDC dc, i32 width, i32 height) {
+    BITMAPINFO bmapInfo = {0};
+    bmapInfo.bmiHeader.biSize = sizeof(bmapInfo.bmiHeader);
+    bmapInfo.bmiHeader.biWidth = w->bitmap.width;
+    bmapInfo.bmiHeader.biHeight = -w->bitmap.height; //negative to make bitmap use top-left is 0,0
+    bmapInfo.bmiHeader.biPlanes = 1; //default to 1
+    bmapInfo.bmiHeader.biBitCount = 32;
+    bmapInfo.bmiHeader.biCompression = BI_RGB;
+
     StretchDIBits(dc,
                   0, 0, width, height,
                   0, 0, w->bitmap.width, w->bitmap.height, // copy from exact rect size to exact rect size
                   w->bitmap.data,
-                  &w->bitmap.info,
+                  &bmapInfo,
                   DIB_RGB_COLORS, //data per pixel
                   SRCCOPY); //raster op code
 }
@@ -159,7 +176,10 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         window_get_content_size(w, &width, &height);
         PAINTSTRUCT paint;
         HDC dc = BeginPaint(hwnd, &paint);
-        if (w->bitmap.data) update_window(w, dc, width, height);
+        if (w->bitmap.data) {
+            color_bitmap_with_gradient(w->bitmap.data, w->bitmap.width, w->bitmap.height, g_xOffset, g_yOffset);
+            refresh_window_backbuffer(w, dc, width, height);
+        }
         EndPaint(hwnd, &paint);
         return 0;
     }
@@ -185,16 +205,16 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         i32 width = LOWORD(lparam), height = HIWORD(lparam);
         if (w->callbacks.on_resize) w->callbacks.on_resize(w, width, height, w->userdata);
         if (w->callbacks.on_refresh) w->callbacks.on_refresh(w, w->userdata);
-        if (w->bitmap.width != width || w->bitmap.height != height) {
-            window_create_bitmap(w, width, height);
-        }
-        color_bitmap(w->bitmap.data, w->bitmap.width, w->bitmap.height, g_xOffset, g_yOffset);
         g_xOffset++;
         g_yOffset++;
     } break;
 
     case WM_MOVE: {
         if (w && w->callbacks.on_move) w->callbacks.on_move(w, (i16)LOWORD(lparam), (i16)HIWORD(lparam), w->userdata);
+    } break;
+
+    default: {
+        return DefWindowProcW(hwnd, msg, wparam, lparam);
     } break;
     }
 
@@ -209,7 +229,7 @@ static bool app_init(void) {
 
     WNDCLASSEXW wc = {
         .cbSize = sizeof(WNDCLASSEXW),
-        .style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC,
+        .style = CS_HREDRAW | CS_VREDRAW,
         .lpfnWndProc = wndproc,
         .hInstance = g_app.hinstance,
         .hCursor = LoadCursorW(NULL, IDC_ARROW),
@@ -227,22 +247,42 @@ bool window_poll_events(void) {
     MSG msg = {0};
     while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
         TranslateMessage(&msg);
+        OInputEvent event = input_translate_event(&msg);
         DispatchMessageW(&msg);
+        input_dispatch_event(event);
     }
 
     for (OWindow *w = g_app.windows; w; w = w->next) {
         if (w->bitmap.data) {
-            color_bitmap(w->bitmap.data, w->bitmap.width, w->bitmap.height, g_xOffset, g_yOffset);
-
+            // NOTE(casey): Since we specified CS_OWNDC, we can just
+            // get one device context and use it forever because we
+            // are not sharing it with anyone
             HDC dc = GetDC(w->hwnd);
             i32 width = 0, height = 0;
             window_get_content_size(w, &width, &height);
-            update_window(w, dc, width, height);
+            if (w->bitmap.width != width || w->bitmap.height != height) {
+                window_create_bitmap(w, width, height);
+            }
+
+            color_bitmap_with_gradient(w->bitmap.data, w->bitmap.width, w->bitmap.height, g_xOffset, g_yOffset);
+            refresh_window_backbuffer(w, dc, width, height);
             ReleaseDC(w->hwnd, dc);
         }
 
         if (w->hwnd && w->callbacks.on_refresh) w->callbacks.on_refresh(w, w->userdata);
     }
+
+    for (DWORD controllerIndex = 0; controllerIndex < XUSER_MAX_COUNT; controllerIndex++) {
+        XINPUT_STATE controllerState;
+        if (XInputGetState(controllerIndex, &controllerState) == ERROR_SUCCESS) {
+            // LOG_ERROR("Controller[%lu] is connected", controllerIndex);
+            //controllerState.dwPacketNumber see if packet number increments too rapidly
+            // XINPUT_GAMEPAD * pad = &controllerState.Gamepad;
+        } else {
+            // LOG_ERROR("Controller[%lu] is not connected", controllerIndex);
+        }
+    }
+
 
     g_xOffset++;
     g_yOffset++;
@@ -258,7 +298,7 @@ OWindow *window_create(OWindowDesc desc) {
 
     if (!app_init()) return NULL;
 
-    OWindow *window = calloc(1, sizeof *window);
+    OWindow *window = calloc(1, sizeof(*window));
     if (!window) {
         LOG_ERROR("window_create: out of memory");
         return NULL;
@@ -282,7 +322,7 @@ OWindow *window_create(OWindowDesc desc) {
     set_content_size(hwnd, desc.width, desc.height);
 
     BOOL dark = TRUE;
-    DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof dark);
+    DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
     if (desc.undecorated) {
         MARGINS margins = {-1, -1, -1, -1};
         DwmExtendFrameIntoClientArea(hwnd, &margins);
@@ -311,7 +351,7 @@ OWindow *window_create(OWindowDesc desc) {
 void window_destroy(OWindow *window) {
     if (!window) return;
 
-    memset(&window->callbacks, 0, sizeof window->callbacks);
+    memset(&window->callbacks, 0, sizeof(window->callbacks));
     window_close(window);
 
     for (OWindow **pp = &g_app.windows; *pp; pp = &(*pp)->next) {
