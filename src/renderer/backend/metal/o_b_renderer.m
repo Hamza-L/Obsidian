@@ -255,10 +255,8 @@ bool renderer_begin_frame(ORenderer *renderer, OSurface surface) {
     }
 
     u32 frameInFlight = layerSlot->frameInFlight;
-    if (![layerSlot->frameEvent waitUntilSignaledValue:layerSlot->frameSignal[frameInFlight] timeoutMS:1000]){
-        LOG_WARN("GPU did not finish frame %llu within 1000ms\n", layerSlot->frameSignal[frameInFlight]);
-        return false;//return without recording anything new to give it another frame.
-    }
+    if (!frame_in_flight_is_done(layerSlot, frameInFlight)) return false;
+    if (layerSlot->drawablesInFlight >= layerSlot->layer.maximumDrawableCount - 1) return false;
 
     drain_retired_images(renderer);
 
@@ -290,6 +288,14 @@ void renderer_end_frame_and_present(ORenderer *renderer, OSurface surface) {
     [layerSlot->queue signalEvent: layerSlot->frameEvent value: layerSlot->frameNumber];
 
     if (layerSlot->currentDrawable) {
+        layerSlot->drawablesInFlight++;
+        u32 age = layerSlot->age;
+        [layerSlot->currentDrawable addPresentedHandler:^(id<MTLDrawable> presented) {
+            (void)presented;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (layerSlot->age == age) layerSlot->drawablesInFlight--;
+            });
+        }];
         [layerSlot->queue signalDrawable:layerSlot->currentDrawable];
         [layerSlot->currentDrawable present];
         layerSlot->currentDrawable = nil;
@@ -545,6 +551,8 @@ void renderer_surface_destroy(ORenderer *renderer, OSurface surface) {
 
     [layerSlot->queue removeResidencySet:layerSlot->layer.residencySet];
 
+    layerSlot->currentDrawable = nil;
+    layerSlot->drawablesInFlight = 0;
     layerSlot->layer = nil;
     layerSlot->view = nil;
     layerSlot->age++;

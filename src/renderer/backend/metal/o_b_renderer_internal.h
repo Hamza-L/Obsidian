@@ -45,6 +45,7 @@ typedef struct {
     uint64_t frameSignal[MAX_FRAMES_IN_FLIGHT]; //frameEvent value reached once the frame recorded with cmdAllocator[i] is done
     uint64_t frameNumber;
     uint32_t frameInFlight;
+    uint32_t drawablesInFlight;
     uint32_t age;
 } OLayerSlot;
 
