@@ -40,7 +40,6 @@ typedef struct {
     uint64_t frameSignal[MAX_FRAMES_IN_FLIGHT]; //sharedEvent value reached once the frame recorded with cmdAllocator[i] is done
     uint32_t frameInFlight;
     uint32_t age;
-    bool inFrame;
 } OLayerSlot;
 
 struct ORenderer{
@@ -59,6 +58,7 @@ struct ORenderer{
     struct {
         OLayerSlot data[MAX_LAYER_COUNT];
     } layerList;
+    OLayerSlot *currentLayer;
 
     MPool bufferPool;
     MPool imagePool;

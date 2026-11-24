@@ -25,7 +25,6 @@ typedef struct OLayerSlot {
     VkFence fences[MAX_FRAMES_IN_FLIGHT];
     uint32_t frameInFlight;
     uint32_t age;
-    bool inFrame;
     bool shouldPresent;
 } OLayerSlot;
 
@@ -46,6 +45,7 @@ struct ORenderer {
     struct {
         OLayerSlot data[MAX_LAYER_COUNT];
     } layerList;
+    OLayerSlot *currentLayer;
 
     MPool shaderPool;
     MPool imagePool;

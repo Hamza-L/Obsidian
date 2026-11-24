@@ -471,8 +471,8 @@ void renderer_wait_idle(ORenderer *renderer) {
 
 bool renderer_begin_frame(ORenderer *renderer, OSurface surface) {
     OLayerSlot *layerSlot = layer_slot_get(renderer, surface);
-    if (!layerSlot || layerSlot->inFrame) {
-        LOG_WARN("renderer_begin_frame: surface is destroyed or already in a frame");
+    if (!layerSlot || renderer->currentLayer) {
+        LOG_WARN("renderer_begin_frame: surface is destroyed or a frame is already in progress");
         return false;
     }
 
@@ -510,13 +510,13 @@ bool renderer_begin_frame(ORenderer *renderer, OSurface surface) {
     }
 
     layerSlot->shouldPresent = false;
-    layerSlot->inFrame = true;
+    renderer->currentLayer = layerSlot;
     return true;
 }
 
 void renderer_end_frame_and_present(ORenderer *renderer, OSurface surface) {
     OLayerSlot *layerSlot = layer_slot_get(renderer, surface);
-    if (!layerSlot || !layerSlot->inFrame) {
+    if (!layerSlot || layerSlot != renderer->currentLayer) {
         LOG_WARN("renderer_end_frame_and_present: surface is destroyed or not in a frame");
         return;
     }
@@ -562,8 +562,8 @@ void renderer_end_frame_and_present(ORenderer *renderer, OSurface surface) {
     }
 
     layerSlot->shouldPresent = false;
-    layerSlot->inFrame = false;
     layerSlot->frameInFlight = (frameInFlight + 1) % MAX_FRAMES_IN_FLIGHT;
+    renderer->currentLayer = NULL;
 }
 
 void renderer_begin_render(ORenderer *renderer, ORenderTargets targets) {
@@ -627,6 +627,10 @@ void renderer_surface_destroy(ORenderer *renderer, OSurface surface) {
         LOG_WARN("attempting to destroy an already destroyed surface\n");
         return;
     }
+    if (layerSlot == renderer->currentLayer) {
+        LOG_WARN("renderer_surface_destroy: surface is in a frame, end the frame first\n");
+        return;
+    }
 
     vkDeviceWaitIdle(renderer->device);
     layer_slot_release(renderer, layerSlot);
@@ -636,7 +640,7 @@ void renderer_surface_destroy(ORenderer *renderer, OSurface surface) {
 void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) {
     (void)image;
     OLayerSlot *layerSlot = layer_slot_get(renderer, surface);
-    if (!layerSlot || !layerSlot->inFrame) {
+    if (!layerSlot || layerSlot != renderer->currentLayer) {
         LOG_WARN("renderer_surface_blit: surface is destroyed or not in a frame\n");
         return;
     }

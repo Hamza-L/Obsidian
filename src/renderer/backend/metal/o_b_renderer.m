@@ -238,8 +238,8 @@ static OLayerSlot *layer_slot_get(ORenderer *renderer, OSurface surface) {
 
 bool renderer_begin_frame(ORenderer *renderer, OSurface surface) {
     OLayerSlot *layerSlot = layer_slot_get(renderer, surface);
-    if (!layerSlot || layerSlot->inFrame) {
-        LOG_WARN("renderer_begin_frame: surface is destroyed or already in a frame\n");
+    if (!layerSlot || renderer->currentLayer) {
+        LOG_WARN("renderer_begin_frame: surface is destroyed or a frame is already in progress\n");
         return false;
     }
 
@@ -257,13 +257,13 @@ bool renderer_begin_frame(ORenderer *renderer, OSurface surface) {
     renderer->frameArenaEnd = renderer->frameArenaHead + FRAME_ARENA_SIZE;
 
     [renderer->cmdBuffer beginCommandBufferWithAllocator:layerSlot->cmdAllocator[frameInFlight]];
-    layerSlot->inFrame = true;
+    renderer->currentLayer = layerSlot;
     return true;
 }
 
 void renderer_end_frame_and_present(ORenderer *renderer, OSurface surface) {
     OLayerSlot *layerSlot = layer_slot_get(renderer, surface);
-    if (!layerSlot || !layerSlot->inFrame) {
+    if (!layerSlot || layerSlot != renderer->currentLayer) {
         LOG_WARN("renderer_end_frame_and_present: surface is destroyed or not in a frame\n");
         return;
     }
@@ -288,7 +288,7 @@ void renderer_end_frame_and_present(ORenderer *renderer, OSurface surface) {
     renderer->frameIndex++;
     layerSlot->frameSignal[layerSlot->frameInFlight] = renderer->frameIndex;
     layerSlot->frameInFlight = (layerSlot->frameInFlight + 1) % MAX_FRAMES_IN_FLIGHT;
-    layerSlot->inFrame = false;
+    renderer->currentLayer = NULL;
 }
 
 static OImageDesc image_desc_resolve(OImageDesc desc) {
@@ -327,6 +327,11 @@ OImage renderer_image_create(ORenderer *renderer, OImageDesc imgDesc) {
 }
 
 void renderer_begin_render(ORenderer *renderer, ORenderTargets targets) {
+    if (!renderer->currentLayer) {
+        LOG_WARN("renderer_begin_render: no frame in progress");
+        return;
+    }
+
     if (renderer->renderEncoder) {
         LOG_WARN("renderer is already recording a renderpass");
         return; //render is already in progress
@@ -429,7 +434,7 @@ OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle
 
 void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) {
     OLayerSlot *layerSlot = layer_slot_get(renderer, surface);
-    if (!layerSlot || !layerSlot->inFrame) {
+    if (!layerSlot || layerSlot != renderer->currentLayer) {
         LOG_WARN("renderer_surface_blit: surface is destroyed or not in a frame\n");
         return;
     }
@@ -496,6 +501,10 @@ void renderer_surface_destroy(ORenderer *renderer, OSurface surface) {
     OLayerSlot *layerSlot = layer_slot_get(renderer, surface);
     if (!layerSlot) {
         LOG_WARN("attempting to destroy an already destroyed surface\n");
+        return;
+    }
+    if (layerSlot == renderer->currentLayer) {
+        LOG_WARN("renderer_surface_destroy: surface is in a frame, end the frame first\n");
         return;
     }
 
