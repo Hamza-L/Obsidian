@@ -4,9 +4,9 @@
 #define SWAPCHAIN_IMAGE_COUNT 3
 #define MAX_FRAMES_IN_FLIGHT 2
 
-#define MAX_LAYER_COUNT 8
+#define MAX_SURFACE_COUNT 8
 
-#define FRAME_BIT_COUNT (MAX_LAYER_COUNT * MAX_FRAMES_IN_FLIGHT)
+#define FRAME_BIT_COUNT (MAX_SURFACE_COUNT * MAX_FRAMES_IN_FLIGHT)
 #if FRAME_BIT_COUNT > 32
 #error "OImageSlot.usedByFramesBitset has only 32 bits"
 #endif

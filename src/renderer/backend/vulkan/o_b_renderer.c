@@ -424,22 +424,22 @@ ORenderer *renderer_create(ORendererDesc desc) {
     return &g_renderer;
 }
 
-static void layer_slot_release(ORenderer *renderer, OLayerSlot *layerSlot) {
-    swapchain_destroy(layerSlot->swapchain);
+static void surface_slot_release(ORenderer *renderer, OSurfaceSlot *surfaceSlot) {
+    swapchain_destroy(surfaceSlot->swapchain);
     for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        if (layerSlot->fences[i]) vkDestroyFence(renderer->device, layerSlot->fences[i], NULL);
+        if (surfaceSlot->fences[i]) vkDestroyFence(renderer->device, surfaceSlot->fences[i], NULL);
     }
-    if (layerSlot->cmdBuffer[0]) vkFreeCommandBuffers(renderer->device, renderer->cmdPool, MAX_FRAMES_IN_FLIGHT, layerSlot->cmdBuffer);
+    if (surfaceSlot->cmdBuffer[0]) vkFreeCommandBuffers(renderer->device, renderer->cmdPool, MAX_FRAMES_IN_FLIGHT, surfaceSlot->cmdBuffer);
 
-    const u32 age = layerSlot->age;
-    memset(layerSlot, 0, sizeof(*layerSlot));
-    layerSlot->age = age;
+    const u32 age = surfaceSlot->age;
+    memset(surfaceSlot, 0, sizeof(*surfaceSlot));
+    surfaceSlot->age = age;
 }
 
-static OLayerSlot *layer_slot_get(ORenderer *renderer, OSurface surface) {
-    if (!surface.id || surface.id > MAX_LAYER_COUNT) return NULL;
-    OLayerSlot *layerSlot = &renderer->layerList.data[surface.id - 1];
-    return layerSlot->swapchain && layerSlot->age == surface.age ? layerSlot : NULL;
+static OSurfaceSlot *surface_slot_get(ORenderer *renderer, OSurface surface) {
+    if (!surface.id || surface.id > MAX_SURFACE_COUNT) return NULL;
+    OSurfaceSlot *surfaceSlot = &renderer->surfaceList.data[surface.id - 1];
+    return surfaceSlot->swapchain && surfaceSlot->age == surface.age ? surfaceSlot : NULL;
 }
 
 void renderer_destroy(ORenderer *renderer) {
@@ -447,8 +447,8 @@ void renderer_destroy(ORenderer *renderer) {
 
     if (renderer->device && vkDeviceWaitIdle) vkDeviceWaitIdle(renderer->device);
 
-    for (u32 i = 0; i < MAX_LAYER_COUNT; i++) {
-        layer_slot_release(renderer, &renderer->layerList.data[i]);
+    for (u32 i = 0; i < MAX_SURFACE_COUNT; i++) {
+        surface_slot_release(renderer, &renderer->surfaceList.data[i]);
     }
 
     if (renderer->device) {
@@ -470,31 +470,31 @@ void renderer_wait_idle(ORenderer *renderer) {
 }
 
 bool renderer_begin_frame(ORenderer *renderer, OSurface surface) {
-    OLayerSlot *layerSlot = layer_slot_get(renderer, surface);
-    if (!layerSlot || renderer->currentLayer) {
+    OSurfaceSlot *surfaceSlot = surface_slot_get(renderer, surface);
+    if (!surfaceSlot || renderer->currentSurface) {
         LOG_WARN("renderer_begin_frame: surface is destroyed or a frame is already in progress");
         return false;
     }
 
-    u32 frameInFlight = layerSlot->frameInFlight;
+    u32 frameInFlight = surfaceSlot->frameInFlight;
 
-    VkExtent2D extent = swapchain_extent(layerSlot->swapchain);
-    if (extent.width != layerSlot->desc.width || extent.height != layerSlot->desc.height) {
-        if (vkWaitForFences(renderer->device, MAX_FRAMES_IN_FLIGHT, layerSlot->fences, VK_TRUE, 0) != VK_SUCCESS) return false;
-        if (!swapchain_resize(layerSlot->swapchain, layerSlot->desc.width, layerSlot->desc.height)) return false;
+    VkExtent2D extent = swapchain_extent(surfaceSlot->swapchain);
+    if (extent.width != surfaceSlot->desc.width || extent.height != surfaceSlot->desc.height) {
+        if (vkWaitForFences(renderer->device, MAX_FRAMES_IN_FLIGHT, surfaceSlot->fences, VK_TRUE, 0) != VK_SUCCESS) return false;
+        if (!swapchain_resize(surfaceSlot->swapchain, surfaceSlot->desc.width, surfaceSlot->desc.height)) return false;
     }
 
-    VkResult vr = vkWaitForFences(renderer->device, 1, &layerSlot->fences[frameInFlight], VK_TRUE, 0);
+    VkResult vr = vkWaitForFences(renderer->device, 1, &surfaceSlot->fences[frameInFlight], VK_TRUE, 0);
     if (vr == VK_TIMEOUT) return false;
     if (vr != VK_SUCCESS) {
         LOG_ERROR("vkWaitForFences failed for frame in flight %u (vr=%d)", frameInFlight, (int)vr);
         return false;
     }
 
-    if (!swapchain_wait_for_frame(layerSlot->swapchain, 0)) return false;
+    if (!swapchain_wait_for_frame(surfaceSlot->swapchain, 0)) return false;
 
     // Reset the fence last: once it is reset, end_frame's submit is the only thing that signals it again.
-    vr = vkResetCommandBuffer(layerSlot->cmdBuffer[frameInFlight], 0);
+    vr = vkResetCommandBuffer(surfaceSlot->cmdBuffer[frameInFlight], 0);
     if (vr != VK_SUCCESS) {
         LOG_ERROR("vkResetCommandBuffer failed (vr=%d)", (int)vr);
         return false;
@@ -504,37 +504,37 @@ bool renderer_begin_frame(ORenderer *renderer, OSurface surface) {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
     };
-    vr = vkBeginCommandBuffer(layerSlot->cmdBuffer[frameInFlight], &begin);
+    vr = vkBeginCommandBuffer(surfaceSlot->cmdBuffer[frameInFlight], &begin);
     if (vr != VK_SUCCESS) {
         LOG_ERROR("vkBeginCommandBuffer failed (vr=%d)", (int)vr);
         return false;
     }
 
-    vr = vkResetFences(renderer->device, 1, &layerSlot->fences[frameInFlight]);
+    vr = vkResetFences(renderer->device, 1, &surfaceSlot->fences[frameInFlight]);
     if (vr != VK_SUCCESS) {
         LOG_ERROR("vkResetFences failed (vr=%d)", (int)vr);
         return false;
     }
 
-    layerSlot->shouldPresent = false;
-    renderer->currentLayer = layerSlot;
+    surfaceSlot->shouldPresent = false;
+    renderer->currentSurface = surfaceSlot;
     return true;
 }
 
 void renderer_end_frame_and_present(ORenderer *renderer, OSurface surface) {
-    OLayerSlot *layerSlot = layer_slot_get(renderer, surface);
-    if (!layerSlot || layerSlot != renderer->currentLayer) {
+    OSurfaceSlot *surfaceSlot = surface_slot_get(renderer, surface);
+    if (!surfaceSlot || surfaceSlot != renderer->currentSurface) {
         LOG_WARN("renderer_end_frame_and_present: surface is destroyed or not in a frame");
         return;
     }
 
-    u32 frameInFlight = layerSlot->frameInFlight;
-    const bool present = layerSlot->shouldPresent && !swapchain_is_lost(layerSlot->swapchain);
+    u32 frameInFlight = surfaceSlot->frameInFlight;
+    const bool present = surfaceSlot->shouldPresent && !swapchain_is_lost(surfaceSlot->swapchain);
     const u32 syncCount = present ? 1 : 0;
-    const SwapchainFrameSync sync = swapchain_frame_sync(layerSlot->swapchain);
+    const SwapchainFrameSync sync = swapchain_frame_sync(surfaceSlot->swapchain);
     const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
 
-    VkResult vr = vkEndCommandBuffer(layerSlot->cmdBuffer[frameInFlight]);
+    VkResult vr = vkEndCommandBuffer(surfaceSlot->cmdBuffer[frameInFlight]);
     if (vr == VK_SUCCESS) {
         VkTimelineSemaphoreSubmitInfo timeline = {
             .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
@@ -550,27 +550,27 @@ void renderer_end_frame_and_present(ORenderer *renderer, OSurface surface) {
             .pWaitSemaphores = &sync.waitSemaphore,
             .pWaitDstStageMask = &waitStage,
             .commandBufferCount = 1,
-            .pCommandBuffers = &layerSlot->cmdBuffer[frameInFlight],
+            .pCommandBuffers = &surfaceSlot->cmdBuffer[frameInFlight],
             .signalSemaphoreCount = syncCount,
             .pSignalSemaphores = &sync.signalSemaphore,
         };
-        vr = vkQueueSubmit(renderer->queue.graphics, 1, &submit, layerSlot->fences[frameInFlight]);
+        vr = vkQueueSubmit(renderer->queue.graphics, 1, &submit, surfaceSlot->fences[frameInFlight]);
     }
 
     if (vr != VK_SUCCESS) {
         LOG_ERROR("frame in flight %u was not submitted (vr=%d)", frameInFlight, (int)vr);
         // Signal the reset fence anyway so the frame in flight does not stall forever. Nothing is presented:
         // D3D11 would wait on a renderFence value that this frame never signals.
-        if (vkQueueSubmit(renderer->queue.graphics, 0, NULL, layerSlot->fences[frameInFlight]) != VK_SUCCESS) {
+        if (vkQueueSubmit(renderer->queue.graphics, 0, NULL, surfaceSlot->fences[frameInFlight]) != VK_SUCCESS) {
             LOG_ERROR("failed to signal frame in flight %u, the device is likely lost", frameInFlight);
         }
     } else if (present) {
-        swapchain_present(layerSlot->swapchain, layerSlot->desc.present_mode == O_PRESENT_VSYNC);
+        swapchain_present(surfaceSlot->swapchain, surfaceSlot->desc.present_mode == O_PRESENT_VSYNC);
     }
 
-    layerSlot->shouldPresent = false;
-    layerSlot->frameInFlight = (frameInFlight + 1) % MAX_FRAMES_IN_FLIGHT;
-    renderer->currentLayer = NULL;
+    surfaceSlot->shouldPresent = false;
+    surfaceSlot->frameInFlight = (frameInFlight + 1) % MAX_FRAMES_IN_FLIGHT;
+    renderer->currentSurface = NULL;
 }
 
 void renderer_begin_render(ORenderer *renderer, ORenderTargets targets) {
@@ -595,10 +595,10 @@ void renderer_image_destroy(ORenderer *renderer, OImage image) {
 
 OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle, OSurfaceDesc desc) {
 
-    // get the first free layer slot
+    // get the first free surface slot
     i32 freeID = 0;
-    for (int i = 0; i < MAX_LAYER_COUNT; i++) {
-        if (renderer->layerList.data[i].hwnd == NULL) {
+    for (int i = 0; i < MAX_SURFACE_COUNT; i++) {
+        if (renderer->surfaceList.data[i].hwnd == NULL) {
             freeID = i + 1;
             break;
         }
@@ -610,68 +610,68 @@ OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle
         return (OSurface){0};
     }
 
-    OLayerSlot *layerSlot = &renderer->layerList.data[freeID - 1];
-    layerSlot->swapchain = swapchain_create(native_window_handle, (SwapchainDesc){.device = g_renderer.device, .physDevice = g_renderer.physDevice, .instance = g_renderer.instance});
-    if (!layerSlot->swapchain) {
+    OSurfaceSlot *surfaceSlot = &renderer->surfaceList.data[freeID - 1];
+    surfaceSlot->swapchain = swapchain_create(native_window_handle, (SwapchainDesc){.device = g_renderer.device, .physDevice = g_renderer.physDevice, .instance = g_renderer.instance});
+    if (!surfaceSlot->swapchain) {
         LOG_ERROR("renderer_surface_create: failed to create swapchain\n");
         return (OSurface){0};
     }
 
-    if (!create_command_buffers(renderer->device, renderer->cmdPool, layerSlot->cmdBuffer, MAX_FRAMES_IN_FLIGHT) ||
-        !create_fences(renderer->device, layerSlot->fences, MAX_FRAMES_IN_FLIGHT)) {
+    if (!create_command_buffers(renderer->device, renderer->cmdPool, surfaceSlot->cmdBuffer, MAX_FRAMES_IN_FLIGHT) ||
+        !create_fences(renderer->device, surfaceSlot->fences, MAX_FRAMES_IN_FLIGHT)) {
         LOG_ERROR("renderer_surface_create: failed to create the frame command buffers and fences\n");
-        layer_slot_release(renderer, layerSlot);
+        surface_slot_release(renderer, surfaceSlot);
         return (OSurface){0};
     }
 
     if (!desc.width || !desc.height) {
-        VkExtent2D extent = swapchain_extent(layerSlot->swapchain);
+        VkExtent2D extent = swapchain_extent(surfaceSlot->swapchain);
         desc.width = extent.width;
         desc.height = extent.height;
     }
 
-    layerSlot->desc = desc;
-    layerSlot->hwnd = native_window_handle;
-    return (OSurface){.id = freeID, .age = layerSlot->age};
+    surfaceSlot->desc = desc;
+    surfaceSlot->hwnd = native_window_handle;
+    return (OSurface){.id = freeID, .age = surfaceSlot->age};
 }
 
 void renderer_surface_update(ORenderer *renderer, OSurface surface, OSurfaceDesc desc) {
-    OLayerSlot *layerSlot = layer_slot_get(renderer, surface);
-    if (!layerSlot) {
+    OSurfaceSlot *surfaceSlot = surface_slot_get(renderer, surface);
+    if (!surfaceSlot) {
         LOG_WARN("renderer_surface_update: surface is destroyed\n");
         return;
     }
 
-    layerSlot->desc = desc;
+    surfaceSlot->desc = desc;
 }
 
 void renderer_surface_destroy(ORenderer *renderer, OSurface surface) {
-    OLayerSlot *layerSlot = layer_slot_get(renderer, surface);
-    if (!layerSlot) {
+    OSurfaceSlot *surfaceSlot = surface_slot_get(renderer, surface);
+    if (!surfaceSlot) {
         LOG_WARN("attempting to destroy an already destroyed surface\n");
         return;
     }
-    if (layerSlot == renderer->currentLayer) {
+    if (surfaceSlot == renderer->currentSurface) {
         LOG_WARN("renderer_surface_destroy: surface is in a frame, end the frame first\n");
         return;
     }
 
-    VkResult vr = vkWaitForFences(renderer->device, MAX_FRAMES_IN_FLIGHT, layerSlot->fences, VK_TRUE, 5000000000ull);
+    VkResult vr = vkWaitForFences(renderer->device, MAX_FRAMES_IN_FLIGHT, surfaceSlot->fences, VK_TRUE, 5000000000ull);
     if (vr != VK_SUCCESS) {
         LOG_WARN("GPU has been busy with the surface for longer than 5s (vr=%d)\n", (int)vr);
     }
 
-    layer_slot_release(renderer, layerSlot);
-    layerSlot->age++;
+    surface_slot_release(renderer, surfaceSlot);
+    surfaceSlot->age++;
 }
 
 void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) {
     (void)image;
-    OLayerSlot *layerSlot = layer_slot_get(renderer, surface);
-    if (!layerSlot || layerSlot != renderer->currentLayer) {
+    OSurfaceSlot *surfaceSlot = surface_slot_get(renderer, surface);
+    if (!surfaceSlot || surfaceSlot != renderer->currentSurface) {
         LOG_WARN("renderer_surface_blit: surface is destroyed or not in a frame\n");
         return;
     }
 
-    layerSlot->shouldPresent = true;
+    surfaceSlot->shouldPresent = true;
 }

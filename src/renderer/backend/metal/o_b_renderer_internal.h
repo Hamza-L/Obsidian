@@ -47,7 +47,7 @@ typedef struct {
     uint32_t frameInFlight;
     uint32_t drawablesInFlight;
     uint32_t age;
-} OLayerSlot;
+} OSurfaceSlot;
 
 struct ORenderer{
     id<MTLDevice> device;
@@ -58,9 +58,9 @@ struct ORenderer{
     id<MTL4RenderCommandEncoder> renderEncoder;
 
     struct {
-        OLayerSlot data[MAX_LAYER_COUNT];
-    } layerList;
-    OLayerSlot *currentLayer;
+        OSurfaceSlot data[MAX_SURFACE_COUNT];
+    } surfaceList;
+    OSurfaceSlot *currentSurface;
 
     MPool bufferPool;
     MPool imagePool;

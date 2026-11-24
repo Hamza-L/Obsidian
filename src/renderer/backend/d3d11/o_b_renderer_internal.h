@@ -12,7 +12,7 @@
 #include <d3d11.h>
 #include <dxgi1_2.h>
 
-#define MAX_LAYER_COUNT 8
+#define MAX_SURFACE_COUNT 8
 #define MAX_IMAGE_COUNT 256
 
 typedef struct OImageSlot {
@@ -21,13 +21,13 @@ typedef struct OImageSlot {
     ID3D11RenderTargetView *rtv;
 } OImageSlot;
 
-typedef struct OLayerSlot {
+typedef struct OSurfaceSlot {
     IDXGISwapChain1 *swapchain;
     bool vsync;
     bool inFrame;
     bool shouldPresent;
     uint32_t age;
-} OLayerSlot;
+} OSurfaceSlot;
 
 struct ORenderer {
     ID3D11Device *device;
@@ -41,8 +41,8 @@ struct ORenderer {
     MPool imagePool;
 
     struct {
-        OLayerSlot data[MAX_LAYER_COUNT];
-    } layerList;
+        OSurfaceSlot data[MAX_SURFACE_COUNT];
+    } surfaceList;
 
     bool rendering;
 };

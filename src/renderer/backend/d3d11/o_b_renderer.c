@@ -115,8 +115,8 @@ ORenderer *renderer_create(ORendererDesc desc) {
 void renderer_destroy(ORenderer *renderer) {
     if (!renderer) return;
 
-    for (u32 i = 0; i < MAX_LAYER_COUNT; i++) {
-        if (renderer->layerList.data[i].swapchain) IDXGISwapChain1_Release(renderer->layerList.data[i].swapchain);
+    for (u32 i = 0; i < MAX_SURFACE_COUNT; i++) {
+        if (renderer->surfaceList.data[i].swapchain) IDXGISwapChain1_Release(renderer->surfaceList.data[i].swapchain);
     }
     // Images are not tracked individually here: release the ones the app never destroyed.
     for (u32 id = 1; renderer->imagePool && id <= MAX_IMAGE_COUNT; id++) {
@@ -141,38 +141,38 @@ void renderer_wait_idle(ORenderer *renderer) {
     ID3D11DeviceContext_Flush(renderer->context);
 }
 
-static OLayerSlot *layer_slot_get(ORenderer *renderer, OSurface surface) {
-    if (!surface.id || surface.id > MAX_LAYER_COUNT) return NULL;
-    OLayerSlot *layerSlot = &renderer->layerList.data[surface.id - 1];
-    return layerSlot->swapchain && layerSlot->age == surface.age ? layerSlot : NULL;
+static OSurfaceSlot *surface_slot_get(ORenderer *renderer, OSurface surface) {
+    if (!surface.id || surface.id > MAX_SURFACE_COUNT) return NULL;
+    OSurfaceSlot *surfaceSlot = &renderer->surfaceList.data[surface.id - 1];
+    return surfaceSlot->swapchain && surfaceSlot->age == surface.age ? surfaceSlot : NULL;
 }
 
 bool renderer_begin_frame(ORenderer *renderer, OSurface surface) {
-    OLayerSlot *layerSlot = layer_slot_get(renderer, surface);
-    if (!layerSlot || layerSlot->inFrame) {
+    OSurfaceSlot *surfaceSlot = surface_slot_get(renderer, surface);
+    if (!surfaceSlot || surfaceSlot->inFrame) {
         LOG_WARN("renderer_begin_frame: surface is destroyed or already in a frame");
         return false;
     }
 
-    layerSlot->shouldPresent = false;
-    layerSlot->inFrame = true;
+    surfaceSlot->shouldPresent = false;
+    surfaceSlot->inFrame = true;
     return true;
 }
 
 void renderer_end_frame_and_present(ORenderer *renderer, OSurface surface) {
-    OLayerSlot *layerSlot = layer_slot_get(renderer, surface);
-    if (!layerSlot || !layerSlot->inFrame) {
+    OSurfaceSlot *surfaceSlot = surface_slot_get(renderer, surface);
+    if (!surfaceSlot || !surfaceSlot->inFrame) {
         LOG_WARN("renderer_end_frame_and_present: surface is destroyed or not in a frame");
         return;
     }
 
-    if (layerSlot->shouldPresent) {
+    if (surfaceSlot->shouldPresent) {
         DXGI_PRESENT_PARAMETERS params = {0};
-        HRESULT hr = IDXGISwapChain1_Present1(layerSlot->swapchain, layerSlot->vsync ? 1 : 0, 0, &params);
+        HRESULT hr = IDXGISwapChain1_Present1(surfaceSlot->swapchain, surfaceSlot->vsync ? 1 : 0, 0, &params);
         if (FAILED(hr)) LOG_ERROR("IDXGISwapChain1::Present1 failed (hr=0x%08lx)", hr);
     }
-    layerSlot->shouldPresent = false;
-    layerSlot->inFrame = false;
+    surfaceSlot->shouldPresent = false;
+    surfaceSlot->inFrame = false;
 }
 
 void renderer_begin_render(ORenderer *renderer, ORenderTargets targets) {
@@ -284,12 +284,12 @@ void renderer_image_destroy(ORenderer *renderer, OImage image) {
 }
 
 OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle, OSurfaceDesc desc) {
-    u32 index = MAX_LAYER_COUNT;
-    for (u32 i = 0; i < MAX_LAYER_COUNT; i++) {
-        if (!renderer->layerList.data[i].swapchain) { index = i; break; }
+    u32 index = MAX_SURFACE_COUNT;
+    for (u32 i = 0; i < MAX_SURFACE_COUNT; i++) {
+        if (!renderer->surfaceList.data[i].swapchain) { index = i; break; }
     }
-    if (index == MAX_LAYER_COUNT) {
-        LOG_WARN("OUT OF CAPACITY: attempting to create a surface beyond the capacity[%d]", MAX_LAYER_COUNT);
+    if (index == MAX_SURFACE_COUNT) {
+        LOG_WARN("OUT OF CAPACITY: attempting to create a surface beyond the capacity[%d]", MAX_SURFACE_COUNT);
         return (OSurface){0};
     }
 
@@ -305,13 +305,13 @@ OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle
     };
     HRESULT hr = IDXGIFactory2_CreateSwapChainForHwnd(renderer->factory, (IUnknown *)renderer->device,
                                                       (HWND)native_window_handle, &scd, NULL, NULL,
-                                                      &renderer->layerList.data[index].swapchain);
+                                                      &renderer->surfaceList.data[index].swapchain);
     if (FAILED(hr)) {
         LOG_ERROR("CreateSwapChainForHwnd failed (hr=0x%08lx)", hr);
         return (OSurface){0};
     }
-    renderer->layerList.data[index].vsync = desc.present_mode == O_PRESENT_VSYNC;
-    return (OSurface){.id = index + 1, .age = renderer->layerList.data[index].age};
+    renderer->surfaceList.data[index].vsync = desc.present_mode == O_PRESENT_VSYNC;
+    return (OSurface){.id = index + 1, .age = renderer->surfaceList.data[index].age};
 }
 
 void renderer_surface_update(ORenderer *renderer, OSurface surface, OSurfaceDesc desc) {
@@ -321,21 +321,21 @@ void renderer_surface_update(ORenderer *renderer, OSurface surface, OSurfaceDesc
 }
 
 void renderer_surface_destroy(ORenderer *renderer, OSurface surface) {
-    OLayerSlot *layerSlot = layer_slot_get(renderer, surface);
-    if (!layerSlot) {
+    OSurfaceSlot *surfaceSlot = surface_slot_get(renderer, surface);
+    if (!surfaceSlot) {
         LOG_WARN("attempting to destroy an already destroyed surface");
         return;
     }
-    IDXGISwapChain1_Release(layerSlot->swapchain);
-    layerSlot->swapchain = NULL;
-    layerSlot->inFrame = false;
-    layerSlot->shouldPresent = false;
-    layerSlot->age++;
+    IDXGISwapChain1_Release(surfaceSlot->swapchain);
+    surfaceSlot->swapchain = NULL;
+    surfaceSlot->inFrame = false;
+    surfaceSlot->shouldPresent = false;
+    surfaceSlot->age++;
 }
 
 void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) {
-    OLayerSlot *layerSlot = layer_slot_get(renderer, surface);
-    if (!layerSlot || !layerSlot->inFrame) {
+    OSurfaceSlot *surfaceSlot = surface_slot_get(renderer, surface);
+    if (!surfaceSlot || !surfaceSlot->inFrame) {
         LOG_WARN("renderer_surface_blit: surface is destroyed or not in a frame");
         return;
     }
@@ -346,7 +346,7 @@ void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) 
     }
 
     ID3D11Texture2D *backBuffer = NULL;
-    HRESULT hr = IDXGISwapChain1_GetBuffer(layerSlot->swapchain, 0, &IID_ID3D11Texture2D, (void **)&backBuffer);
+    HRESULT hr = IDXGISwapChain1_GetBuffer(surfaceSlot->swapchain, 0, &IID_ID3D11Texture2D, (void **)&backBuffer);
     if (FAILED(hr)) {
         LOG_ERROR("IDXGISwapChain1::GetBuffer failed (hr=0x%08lx)", hr);
         return;
@@ -356,7 +356,7 @@ void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) 
     ID3D11Texture2D_GetDesc(backBuffer, &bd);
     if (bd.Width == slot->desc.width && bd.Height == slot->desc.height && bd.Format == dxgi_format(slot->desc.format)) {
         ID3D11DeviceContext_CopyResource(renderer->context, (ID3D11Resource *)backBuffer, (ID3D11Resource *)slot->texture);
-        layerSlot->shouldPresent = true;
+        surfaceSlot->shouldPresent = true;
     } else {
         LOG_WARN("renderer_surface_blit: image %ux%u does not match the swapchain %ux%u", slot->desc.width, slot->desc.height, bd.Width, bd.Height);
     }

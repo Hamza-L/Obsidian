@@ -12,13 +12,13 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
-#define MAX_LAYER_COUNT 8
+#define MAX_SURFACE_COUNT 8
 #define MAX_SHADER_COUNT 256
 
 typedef struct OShaderSlot OShaderSlot;
 typedef struct OImageSlot OImageSlot;
 
-typedef struct OLayerSlot {
+typedef struct OSurfaceSlot {
     void *hwnd;
     Swapchain *swapchain;
     OSurfaceDesc desc;
@@ -27,7 +27,7 @@ typedef struct OLayerSlot {
     uint32_t frameInFlight;
     uint32_t age;
     bool shouldPresent;
-} OLayerSlot;
+} OSurfaceSlot;
 
 struct ORenderer {
     VkInstance instance;
@@ -44,9 +44,9 @@ struct ORenderer {
     } queue;
 
     struct {
-        OLayerSlot data[MAX_LAYER_COUNT];
-    } layerList;
-    OLayerSlot *currentLayer;
+        OSurfaceSlot data[MAX_SURFACE_COUNT];
+    } surfaceList;
+    OSurfaceSlot *currentSurface;
 
     MPool shaderPool;
     MPool imagePool;
