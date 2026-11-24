@@ -34,7 +34,7 @@ Swapchain *swapchain_create(void *native_window_handle, SwapchainDesc desc);
 bool swapchain_resize(Swapchain *sc, uint32_t width, uint32_t height);
 void swapchain_destroy(Swapchain *sc);
 
-void swapchain_wait_for_frame(Swapchain *sc);
+bool swapchain_wait_for_frame(Swapchain *sc, uint32_t timeoutMs);
 SwapchainFrameSync swapchain_frame_sync(const Swapchain *sc);
 bool swapchain_is_lost(const Swapchain *sc);
 SwapchainPresentResult swapchain_present(Swapchain *sc);

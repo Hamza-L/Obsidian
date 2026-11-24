@@ -478,13 +478,14 @@ bool renderer_begin_frame(ORenderer *renderer, OSurface surface) {
 
     u32 frameInFlight = layerSlot->frameInFlight;
 
-    swapchain_wait_for_frame(layerSlot->swapchain);
-
-    VkResult vr = vkWaitForFences(renderer->device, 1, &layerSlot->fences[frameInFlight], VK_TRUE, 1000000000ull);
+    VkResult vr = vkWaitForFences(renderer->device, 1, &layerSlot->fences[frameInFlight], VK_TRUE, 0);
+    if (vr == VK_TIMEOUT) return false;
     if (vr != VK_SUCCESS) {
-        LOG_WARN("GPU did not release frame in flight %u within 1000ms (vr=%d)", frameInFlight, (int)vr);
+        LOG_ERROR("vkWaitForFences failed for frame in flight %u (vr=%d)", frameInFlight, (int)vr);
         return false;
     }
+
+    if (!swapchain_wait_for_frame(layerSlot->swapchain, 0)) return false;
 
     // Reset the fence last: once it is reset, end_frame's submit is the only thing that signals it again.
     vr = vkResetCommandBuffer(layerSlot->cmdBuffer[frameInFlight], 0);

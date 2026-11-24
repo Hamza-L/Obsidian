@@ -759,13 +759,10 @@ bool swapchain_resize(Swapchain *sc, u32 width, u32 height) {
     return true;
 }
 
-void swapchain_wait_for_frame(Swapchain *sc) {
-    if (!sc || sc->frameWaited) return;
-
-    if (WaitForSingleObjectEx(sc->frameLatencyWaitable, 1000, FALSE) != WAIT_OBJECT_0) {
-        LOG_WARN("swapchain was not ready for a new frame within 1000ms");
-    }
-    sc->frameWaited = true;
+bool swapchain_wait_for_frame(Swapchain *sc, u32 timeoutMs) {
+    if (!sc) return false;
+    if (!sc->frameWaited) sc->frameWaited = WaitForSingleObjectEx(sc->frameLatencyWaitable, timeoutMs, FALSE) == WAIT_OBJECT_0;
+    return sc->frameWaited;
 }
 
 bool swapchain_is_lost(const Swapchain *sc) {
@@ -786,7 +783,9 @@ SwapchainFrameSync swapchain_frame_sync(const Swapchain *sc) {
 // The caller must already have submitted the Vulkan work that signals renderSemaphore to
 // swapchain_frame_sync(sc).signalValue; otherwise the D3D11 wait below never completes.
 SwapchainPresentResult swapchain_present(Swapchain *sc) {
-    swapchain_wait_for_frame(sc);
+    if (!swapchain_wait_for_frame(sc, 1000)) {
+        LOG_WARN("swapchain was not ready for a new frame within 1000ms");
+    }
 
     u64 frame = sc->presentCount;
     u32 index = (u32)(frame % SWAPCHAIN_IMAGE_COUNT);
