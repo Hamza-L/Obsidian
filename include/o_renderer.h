@@ -218,6 +218,7 @@ OImage renderer_image_create(ORenderer *renderer, OImageDesc desc);
 void renderer_image_destroy(ORenderer *renderer, OImage image);
 
 OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle, OSurfaceDesc desc);
+void renderer_surface_update(ORenderer *renderer, OSurface surface, OSurfaceDesc desc);
 void renderer_surface_destroy(ORenderer *renderer, OSurface surface);
 
 OShader renderer_shader_create(ORenderer *renderer, OShaderDesc desc);

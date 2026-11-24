@@ -478,6 +478,12 @@ bool renderer_begin_frame(ORenderer *renderer, OSurface surface) {
 
     u32 frameInFlight = layerSlot->frameInFlight;
 
+    VkExtent2D extent = swapchain_extent(layerSlot->swapchain);
+    if (extent.width != layerSlot->desc.width || extent.height != layerSlot->desc.height) {
+        if (vkWaitForFences(renderer->device, MAX_FRAMES_IN_FLIGHT, layerSlot->fences, VK_TRUE, 0) != VK_SUCCESS) return false;
+        if (!swapchain_resize(layerSlot->swapchain, layerSlot->desc.width, layerSlot->desc.height)) return false;
+    }
+
     VkResult vr = vkWaitForFences(renderer->device, 1, &layerSlot->fences[frameInFlight], VK_TRUE, 0);
     if (vr == VK_TIMEOUT) return false;
     if (vr != VK_SUCCESS) {
@@ -559,7 +565,7 @@ void renderer_end_frame_and_present(ORenderer *renderer, OSurface surface) {
             LOG_ERROR("failed to signal frame in flight %u, the device is likely lost", frameInFlight);
         }
     } else if (present) {
-        swapchain_present(layerSlot->swapchain);
+        swapchain_present(layerSlot->swapchain, layerSlot->desc.present_mode == O_PRESENT_VSYNC);
     }
 
     layerSlot->shouldPresent = false;
@@ -605,7 +611,7 @@ OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle
     }
 
     OLayerSlot *layerSlot = &renderer->layerList.data[freeID - 1];
-    layerSlot->swapchain = swapchain_create(native_window_handle, (SwapchainDesc){.device = g_renderer.device, .physDevice = g_renderer.physDevice, .instance = g_renderer.instance, .vsync = desc.present_mode == O_PRESENT_VSYNC});
+    layerSlot->swapchain = swapchain_create(native_window_handle, (SwapchainDesc){.device = g_renderer.device, .physDevice = g_renderer.physDevice, .instance = g_renderer.instance});
     if (!layerSlot->swapchain) {
         LOG_ERROR("renderer_surface_create: failed to create swapchain\n");
         return (OSurface){0};
@@ -618,8 +624,25 @@ OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle
         return (OSurface){0};
     }
 
+    if (!desc.width || !desc.height) {
+        VkExtent2D extent = swapchain_extent(layerSlot->swapchain);
+        desc.width = extent.width;
+        desc.height = extent.height;
+    }
+
+    layerSlot->desc = desc;
     layerSlot->hwnd = native_window_handle;
     return (OSurface){.id = freeID, .age = layerSlot->age};
+}
+
+void renderer_surface_update(ORenderer *renderer, OSurface surface, OSurfaceDesc desc) {
+    OLayerSlot *layerSlot = layer_slot_get(renderer, surface);
+    if (!layerSlot) {
+        LOG_WARN("renderer_surface_update: surface is destroyed\n");
+        return;
+    }
+
+    layerSlot->desc = desc;
 }
 
 void renderer_surface_destroy(ORenderer *renderer, OSurface surface) {

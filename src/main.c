@@ -45,6 +45,20 @@ static void on_refresh_render(OWindow *window, void *user) {
     }
 }
 
+static OImage render_target_create(ORenderer *renderer, int32_t width, int32_t height) {
+    return renderer_image_create(renderer, (OImageDesc){.format = O_FORMAT_BGRA8_UNORM, .width = width, .height = height, .usage = O_IMAGE_READ | O_IMAGE_RENDERTARGET});
+}
+
+static void on_resize(OWindow *window, int32_t width, int32_t height, void *user) {
+    struct RenderData *data = (struct RenderData *)user;
+    window_get_pixel_size(window, &width, &height);
+    renderer_surface_update(data->renderer, data->surface, (OSurfaceDesc){.width = width, .height = height, .present_mode = O_PRESENT_VSYNC});
+    if (width <= 0 || height <= 0) return;
+
+    renderer_image_destroy(data->renderer, data->renderTarget);
+    data->renderTarget = render_target_create(data->renderer, width, height);
+}
+
 #define WINDOW_WIDTH 800
 #define WINDOW_HEIGHT 600
 
@@ -59,11 +73,11 @@ int main(int argc, char **argv) {
 
     ORenderer *renderer = renderer_create((ORendererDesc){0});
 
-    OSurface surface = renderer_surface_create(renderer, window_native_handle(window), (OSurfaceDesc){.width = WINDOW_WIDTH, .height = WINDOW_HEIGHT, .present_mode = O_PRESENT_VSYNC});
-
     int32_t width, height;
     window_get_pixel_size(window, &width, &height);
-    OImage rt = renderer_image_create(renderer, (OImageDesc){.format = O_FORMAT_BGRA8_UNORM, .width = width, .height = height, .usage = O_IMAGE_READ | O_IMAGE_RENDERTARGET});
+    OSurface surface = renderer_surface_create(renderer, window_native_handle(window), (OSurfaceDesc){.width = width, .height = height, .present_mode = O_PRESENT_VSYNC});
+
+    OImage rt = render_target_create(renderer, width, height);
     if (HANDLE_IS_NULL(rt)) {
         LOG_ERROR("failed to create image\n");
         return 0;
@@ -72,7 +86,7 @@ int main(int argc, char **argv) {
     renderData.renderTarget = rt;
     renderData.renderer = renderer;
     renderData.surface = surface;
-    window_set_callbacks(window, (OWindowCallbacks){.on_refresh = on_refresh_render}, &renderData);
+    window_set_callbacks(window, (OWindowCallbacks){.on_refresh = on_refresh_render, .on_resize = on_resize}, &renderData);
 
     while (window_poll_events()) {}
 

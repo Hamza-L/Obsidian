@@ -314,6 +314,12 @@ OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle
     return (OSurface){.id = index + 1, .age = renderer->layerList.data[index].age};
 }
 
+void renderer_surface_update(ORenderer *renderer, OSurface surface, OSurfaceDesc desc) {
+    (void)renderer;
+    (void)surface;
+    (void)desc;
+}
+
 void renderer_surface_destroy(ORenderer *renderer, OSurface surface) {
     OLayerSlot *layerSlot = layer_slot_get(renderer, surface);
     if (!layerSlot) {

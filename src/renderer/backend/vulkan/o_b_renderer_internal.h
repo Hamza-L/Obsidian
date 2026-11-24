@@ -21,6 +21,7 @@ typedef struct OImageSlot OImageSlot;
 typedef struct OLayerSlot {
     void *hwnd;
     Swapchain *swapchain;
+    OSurfaceDesc desc;
     VkCommandBuffer cmdBuffer[MAX_FRAMES_IN_FLIGHT];
     VkFence fences[MAX_FRAMES_IN_FLIGHT];
     uint32_t frameInFlight;

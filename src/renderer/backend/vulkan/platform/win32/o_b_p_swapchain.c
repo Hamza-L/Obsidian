@@ -111,7 +111,6 @@ struct Swapchain {
     VkDevice device;
     VkPhysicalDevice phys;
     VkInstance instance;
-    bool vsync;
 
     /* D3D11 (minimal — used only for DXGI resource ownership) */
     ID3D11Device *d3dDevice;
@@ -729,7 +728,6 @@ void swapchain_destroy(Swapchain *sc) {
 bool swapchain_resize(Swapchain *sc, u32 width, u32 height) {
     if (sc->lost || width == 0 || height == 0) return false;
 
-    vkDeviceWaitIdle(sc->device);
     wait_for_copies(sc);
 
     release_vk_images(sc);
@@ -758,6 +756,10 @@ bool swapchain_resize(Swapchain *sc, u32 width, u32 height) {
     return true;
 }
 
+VkExtent2D swapchain_extent(const Swapchain *sc) {
+    return sc->extent;
+}
+
 bool swapchain_wait_for_frame(Swapchain *sc, u32 timeoutMs) {
     if (!sc) return false;
     if (!sc->frameWaited) sc->frameWaited = WaitForSingleObjectEx(sc->frameLatencyWaitable, timeoutMs, FALSE) == WAIT_OBJECT_0;
@@ -781,7 +783,7 @@ SwapchainFrameSync swapchain_frame_sync(const Swapchain *sc) {
 
 // The caller must already have submitted the Vulkan work that signals renderSemaphore to
 // swapchain_frame_sync(sc).signalValue; otherwise the D3D11 wait below never completes.
-SwapchainPresentResult swapchain_present(Swapchain *sc) {
+SwapchainPresentResult swapchain_present(Swapchain *sc, bool vsync) {
     if (!swapchain_wait_for_frame(sc, 1000)) {
         LOG_WARN("swapchain was not ready for a new frame within 1000ms");
     }
@@ -819,7 +821,7 @@ SwapchainPresentResult swapchain_present(Swapchain *sc) {
         return SWAPCHAIN_PRESENT_FAILED;
     }
 
-    UINT sync_interval = sc->vsync ? 1 : 0;
+    UINT sync_interval = vsync ? 1 : 0;
     DXGI_PRESENT_PARAMETERS params;
     memset(&params, 0, sizeof(params));
 
@@ -853,7 +855,6 @@ Swapchain *swapchain_create(void *native_window_handle, SwapchainDesc desc) {
     sc->device = desc.device;
     sc->phys = desc.physDevice;
     sc->instance = desc.instance;
-    sc->vsync = desc.vsync;
 
     vkGetPhysicalDeviceMemoryProperties(sc->phys, &sc->memProps);
 

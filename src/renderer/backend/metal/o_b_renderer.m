@@ -453,8 +453,11 @@ OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle
 
     NSView *view = (__bridge NSView *)native_window_handle;
     layer.contentsScale = view.window.backingScaleFactor;
-    layer.drawableSize = CGSizeMake(view.bounds.size.width * view.window.backingScaleFactor,
-                                    view.bounds.size.height * view.window.backingScaleFactor);
+    if (!desc.width || !desc.height) {
+        desc.width = (u32)(view.bounds.size.width * view.window.backingScaleFactor);
+        desc.height = (u32)(view.bounds.size.height * view.window.backingScaleFactor);
+    }
+    layer.drawableSize = CGSizeMake(desc.width, desc.height);
     view.layer = layer;
 
     [layerSlot->queue addResidencySet:layer.residencySet];
@@ -462,6 +465,17 @@ OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle
     layerSlot->view = view;
     layerSlot->layer = layer;
     return (OSurface){freeID, layerSlot->age};
+}
+
+void renderer_surface_update(ORenderer *renderer, OSurface surface, OSurfaceDesc desc) {
+    OLayerSlot *layerSlot = layer_slot_get(renderer, surface);
+    if (!layerSlot) {
+        LOG_WARN("renderer_surface_update: surface is destroyed\n");
+        return;
+    }
+
+    if (desc.width && desc.height) layerSlot->layer.drawableSize = CGSizeMake(desc.width, desc.height);
+    layerSlot->layer.displaySyncEnabled = desc.present_mode == O_PRESENT_VSYNC ? YES : NO;
 }
 
 void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) {
@@ -476,12 +490,6 @@ void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) 
 
     if (layer.contentsScale != view.window.backingScaleFactor) {
         layer.contentsScale = view.window.backingScaleFactor;
-    }
-
-    if (layer.drawableSize.width != view.bounds.size.width * view.window.backingScaleFactor ||
-        layer.drawableSize.height != view.bounds.size.height * view.window.backingScaleFactor) {
-        layer.drawableSize = CGSizeMake(view.bounds.size.width * view.window.backingScaleFactor,
-                                        view.bounds.size.height * view.window.backingScaleFactor);
     }
 
     id<CAMetalDrawable> currentDrawable = [layer nextDrawable];

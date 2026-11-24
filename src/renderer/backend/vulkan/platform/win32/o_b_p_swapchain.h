@@ -27,16 +27,17 @@ typedef struct SwapchainDesc {
     VkDevice device;
     VkPhysicalDevice physDevice;
     VkInstance instance;
-    bool vsync;
 } SwapchainDesc;
 
+// The caller must wait for its Vulkan work on the swapchain images before resizing or destroying it.
 Swapchain *swapchain_create(void *native_window_handle, SwapchainDesc desc);
 bool swapchain_resize(Swapchain *sc, uint32_t width, uint32_t height);
 void swapchain_destroy(Swapchain *sc);
 
+VkExtent2D swapchain_extent(const Swapchain *sc);
 bool swapchain_wait_for_frame(Swapchain *sc, uint32_t timeoutMs);
 SwapchainFrameSync swapchain_frame_sync(const Swapchain *sc);
 bool swapchain_is_lost(const Swapchain *sc);
-SwapchainPresentResult swapchain_present(Swapchain *sc);
+SwapchainPresentResult swapchain_present(Swapchain *sc, bool vsync);
 
 #endif /* O_B_P_SWAPCHAIN_H */
