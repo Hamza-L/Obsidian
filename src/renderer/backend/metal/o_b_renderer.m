@@ -145,12 +145,6 @@ ORenderer *renderer_create(ORendererDesc desc) {
         return NULL;
     }
 
-    id<MTL4CommandQueue> queue = [device newMTL4CommandQueue];
-    if (!queue) {
-        LOG_ERROR("failed to create Metal command queue");
-        return NULL;
-    }
-
     MTL4CompilerDescriptor *cDesc = [MTL4CompilerDescriptor new];
     cDesc.label = @"Compiler";
     id<MTL4Compiler> compiler = [device newCompilerWithDescriptor:cDesc
@@ -209,11 +203,7 @@ ORenderer *renderer_create(ORendererDesc desc) {
     [residencySet addAllocation: g_renderer.imageTable];
     [residencySet addAllocation: g_renderer.frameArena];
 
-    // add residency set to queue
-    [queue addResidencySet: residencySet];
-
     g_renderer.device = device;
-    g_renderer.queue = queue;
     g_renderer.compiler = compiler;
     g_renderer.residencySet = residencySet;
 
@@ -296,11 +286,11 @@ void renderer_end_frame_and_present(ORenderer *renderer, OSurface surface) {
 
     [renderer->residencySet commit];
 
-    [renderer->queue commit: &renderer->cmdBuffer count: 1];
-    [renderer->queue signalEvent: layerSlot->frameEvent value: layerSlot->frameNumber];
+    [layerSlot->queue commit: &renderer->cmdBuffer count: 1];
+    [layerSlot->queue signalEvent: layerSlot->frameEvent value: layerSlot->frameNumber];
 
     if (layerSlot->currentDrawable) {
-        [renderer->queue signalDrawable:layerSlot->currentDrawable];
+        [layerSlot->queue signalDrawable:layerSlot->currentDrawable];
         [layerSlot->currentDrawable present];
         layerSlot->currentDrawable = nil;
     }
@@ -434,6 +424,14 @@ OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle
             }
         }
 
+        id<MTL4CommandQueue> queue = [renderer->device newMTL4CommandQueue];
+        if (!queue) {
+            LOG_ERROR("failed to create Metal command queue");
+            return (OSurface){0};
+        }
+        [queue addResidencySet:renderer->residencySet];
+        layerSlot->queue = queue;
+
         if (!(layerSlot->frameEvent = [renderer->device newSharedEvent])) {
             LOG_ERROR("failed to create shared event object");
             return (OSurface){0};
@@ -453,7 +451,7 @@ OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle
                                     view.bounds.size.height * view.window.backingScaleFactor);
     view.layer = layer;
 
-    [renderer->queue addResidencySet:layer.residencySet];
+    [layerSlot->queue addResidencySet:layer.residencySet];
 
     layerSlot->view = view;
     layerSlot->layer = layer;
@@ -482,7 +480,7 @@ void renderer_surface_blit(ORenderer *renderer, OSurface surface, OImage image) 
 
     id<CAMetalDrawable> currentDrawable = [layer nextDrawable];
     if (currentDrawable) {
-        [renderer->queue waitForDrawable:currentDrawable];
+        [layerSlot->queue waitForDrawable:currentDrawable];
 
         OImageSlot* imgSlot = (OImageSlot*)memory_pool_item_get(renderer->imagePool, (MHandle){.id = image.id, .age = image.age});
         if (imgSlot) {
@@ -545,7 +543,7 @@ void renderer_surface_destroy(ORenderer *renderer, OSurface surface) {
         LOG_WARN("GPU has been busy with the surface for longer than 5s\n");
     }
 
-    [renderer->queue removeResidencySet:layerSlot->layer.residencySet];
+    [layerSlot->queue removeResidencySet:layerSlot->layer.residencySet];
 
     layerSlot->layer = nil;
     layerSlot->view = nil;
@@ -565,6 +563,7 @@ void renderer_destroy(ORenderer *renderer){
             renderer->layerList.data[i].cmdAllocator[j] = nil;
         }
         renderer->layerList.data[i].frameEvent = nil;
+        renderer->layerList.data[i].queue = nil;
     }
 
     renderer->cmdBuffer = nil;
@@ -572,7 +571,6 @@ void renderer_destroy(ORenderer *renderer){
     renderer->frameArena = nil;
     renderer->argumentTable = nil;
     renderer->residencySet = nil;
-    renderer->queue = nil;
     renderer->device = nil;
 
     memory_pool_destroy(renderer->imagePool);

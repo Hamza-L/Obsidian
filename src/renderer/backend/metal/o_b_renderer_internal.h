@@ -38,6 +38,7 @@ typedef struct {
     CAMetalLayer *layer;
     id<CAMetalDrawable> currentDrawable;
 
+    id<MTL4CommandQueue> queue;
     id<MTL4CommandAllocator> cmdAllocator[MAX_FRAMES_IN_FLIGHT]; //memory that holds the commands
     id<MTLSharedEvent> frameEvent; //sync object
 
@@ -49,7 +50,6 @@ typedef struct {
 
 struct ORenderer{
     id<MTLDevice> device;
-    id<MTL4CommandQueue> queue;
     id<MTL4Compiler> compiler;
     id<MTLResidencySet> residencySet;
 
@@ -72,9 +72,7 @@ struct ORenderer{
     } retireList;
 
     id<MTL4ArgumentTable> argumentTable;
-
     id<MTLBuffer> imageTable;
-
     id<MTLBuffer> frameArena;
     size_t frameArenaHead;
     size_t frameArenaEnd;

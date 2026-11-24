@@ -6,7 +6,7 @@
 
 // Zero-initialized descs select defaults. A handle with id 0 is null.
 // Destroying a resource the GPU is still using is safe; it is released once the GPU is done.
-// Commands execute in submission order; the renderer inserts synchronization and layout transitions.
+// Commands of a surface execute in submission order; the renderer inserts synchronization and layout transitions.
 // renderer_wait_idle waits until the GPU has finished the submitted frames of every surface. A frame is
 // submitted by renderer_end_frame_and_present, so a frame still being recorded is not waited on.
 //
