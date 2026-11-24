@@ -703,7 +703,6 @@ static bool dxgi_init(void *native_window_handle, Swapchain *sc) {
 void swapchain_destroy(Swapchain *sc) {
     if (!sc) return;
 
-    vkDeviceWaitIdle(sc->device);
     wait_for_copies(sc);
 
     release_vk_images(sc);

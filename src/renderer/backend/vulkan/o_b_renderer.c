@@ -633,7 +633,11 @@ void renderer_surface_destroy(ORenderer *renderer, OSurface surface) {
         return;
     }
 
-    vkDeviceWaitIdle(renderer->device);
+    VkResult vr = vkWaitForFences(renderer->device, MAX_FRAMES_IN_FLIGHT, layerSlot->fences, VK_TRUE, 5000000000ull);
+    if (vr != VK_SUCCESS) {
+        LOG_WARN("GPU has been busy with the surface for longer than 5s (vr=%d)\n", (int)vr);
+    }
+
     layer_slot_release(renderer, layerSlot);
     layerSlot->age++;
 }
