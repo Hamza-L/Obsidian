@@ -38,7 +38,7 @@ typedef struct {
     id<CAMetalDrawable> currentDrawable;
     id<MTL4CommandAllocator> cmdAllocator[MAX_FRAMES_IN_FLIGHT]; //memory that holds the commands
     uint64_t frameSignal[MAX_FRAMES_IN_FLIGHT]; //sharedEvent value reached once the frame recorded with cmdAllocator[i] is done
-    uint32_t frameSlot;
+    uint32_t frameInFlight;
     uint32_t age;
     bool inFrame;
 } OLayerSlot;

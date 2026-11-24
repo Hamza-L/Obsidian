@@ -476,18 +476,18 @@ bool renderer_begin_frame(ORenderer *renderer, OSurface surface) {
         return false;
     }
 
-    u32 slot = layerSlot->frameSlot;
+    u32 frameInFlight = layerSlot->frameInFlight;
 
     swapchain_wait_for_frame(layerSlot->swapchain);
 
-    VkResult vr = vkWaitForFences(renderer->device, 1, &layerSlot->fences[slot], VK_TRUE, 1000000000ull);
+    VkResult vr = vkWaitForFences(renderer->device, 1, &layerSlot->fences[frameInFlight], VK_TRUE, 1000000000ull);
     if (vr != VK_SUCCESS) {
-        LOG_WARN("GPU did not release frame slot %u within 1000ms (vr=%d)", slot, (int)vr);
+        LOG_WARN("GPU did not release frame in flight %u within 1000ms (vr=%d)", frameInFlight, (int)vr);
         return false;
     }
 
     // Reset the fence last: once it is reset, end_frame's submit is the only thing that signals it again.
-    vr = vkResetCommandBuffer(layerSlot->cmdBuffer[slot], 0);
+    vr = vkResetCommandBuffer(layerSlot->cmdBuffer[frameInFlight], 0);
     if (vr != VK_SUCCESS) {
         LOG_ERROR("vkResetCommandBuffer failed (vr=%d)", (int)vr);
         return false;
@@ -497,13 +497,13 @@ bool renderer_begin_frame(ORenderer *renderer, OSurface surface) {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
     };
-    vr = vkBeginCommandBuffer(layerSlot->cmdBuffer[slot], &begin);
+    vr = vkBeginCommandBuffer(layerSlot->cmdBuffer[frameInFlight], &begin);
     if (vr != VK_SUCCESS) {
         LOG_ERROR("vkBeginCommandBuffer failed (vr=%d)", (int)vr);
         return false;
     }
 
-    vr = vkResetFences(renderer->device, 1, &layerSlot->fences[slot]);
+    vr = vkResetFences(renderer->device, 1, &layerSlot->fences[frameInFlight]);
     if (vr != VK_SUCCESS) {
         LOG_ERROR("vkResetFences failed (vr=%d)", (int)vr);
         return false;
@@ -521,13 +521,13 @@ void renderer_end_frame_and_present(ORenderer *renderer, OSurface surface) {
         return;
     }
 
-    u32 slot = layerSlot->frameSlot;
+    u32 frameInFlight = layerSlot->frameInFlight;
     const bool present = layerSlot->shouldPresent && !swapchain_is_lost(layerSlot->swapchain);
     const u32 syncCount = present ? 1 : 0;
     const SwapchainFrameSync sync = swapchain_frame_sync(layerSlot->swapchain);
     const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
 
-    VkResult vr = vkEndCommandBuffer(layerSlot->cmdBuffer[slot]);
+    VkResult vr = vkEndCommandBuffer(layerSlot->cmdBuffer[frameInFlight]);
     if (vr == VK_SUCCESS) {
         VkTimelineSemaphoreSubmitInfo timeline = {
             .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
@@ -543,19 +543,19 @@ void renderer_end_frame_and_present(ORenderer *renderer, OSurface surface) {
             .pWaitSemaphores = &sync.waitSemaphore,
             .pWaitDstStageMask = &waitStage,
             .commandBufferCount = 1,
-            .pCommandBuffers = &layerSlot->cmdBuffer[slot],
+            .pCommandBuffers = &layerSlot->cmdBuffer[frameInFlight],
             .signalSemaphoreCount = syncCount,
             .pSignalSemaphores = &sync.signalSemaphore,
         };
-        vr = vkQueueSubmit(renderer->queue.graphics, 1, &submit, layerSlot->fences[slot]);
+        vr = vkQueueSubmit(renderer->queue.graphics, 1, &submit, layerSlot->fences[frameInFlight]);
     }
 
     if (vr != VK_SUCCESS) {
-        LOG_ERROR("frame in slot %u was not submitted (vr=%d)", slot, (int)vr);
-        // Signal the reset fence anyway so the slot does not stall forever. Nothing is presented:
+        LOG_ERROR("frame in flight %u was not submitted (vr=%d)", frameInFlight, (int)vr);
+        // Signal the reset fence anyway so the frame in flight does not stall forever. Nothing is presented:
         // D3D11 would wait on a renderFence value that this frame never signals.
-        if (vkQueueSubmit(renderer->queue.graphics, 0, NULL, layerSlot->fences[slot]) != VK_SUCCESS) {
-            LOG_ERROR("failed to signal frame slot %u, the device is likely lost", slot);
+        if (vkQueueSubmit(renderer->queue.graphics, 0, NULL, layerSlot->fences[frameInFlight]) != VK_SUCCESS) {
+            LOG_ERROR("failed to signal frame in flight %u, the device is likely lost", frameInFlight);
         }
     } else if (present) {
         swapchain_present(layerSlot->swapchain);
@@ -563,7 +563,7 @@ void renderer_end_frame_and_present(ORenderer *renderer, OSurface surface) {
 
     layerSlot->shouldPresent = false;
     layerSlot->inFrame = false;
-    layerSlot->frameSlot = (slot + 1) % MAX_FRAMES_IN_FLIGHT;
+    layerSlot->frameInFlight = (frameInFlight + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
 void renderer_begin_render(ORenderer *renderer, ORenderTargets targets) {

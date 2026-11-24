@@ -243,20 +243,20 @@ bool renderer_begin_frame(ORenderer *renderer, OSurface surface) {
         return false;
     }
 
-    u32 slot = layerSlot->frameSlot;
-    if (![renderer->sharedEvent waitUntilSignaledValue:layerSlot->frameSignal[slot] timeoutMS:1000]){
-        LOG_WARN("GPU did not finish frame %llu within 1000ms\n", layerSlot->frameSignal[slot]);
+    u32 frameInFlight = layerSlot->frameInFlight;
+    if (![renderer->sharedEvent waitUntilSignaledValue:layerSlot->frameSignal[frameInFlight] timeoutMS:1000]){
+        LOG_WARN("GPU did not finish frame %llu within 1000ms\n", layerSlot->frameSignal[frameInFlight]);
         return false;//return without recording anything new to give it another frame.
     }
 
     drain_retired_images(renderer);
 
-    [layerSlot->cmdAllocator[slot] reset]; //cmd allocator is an arena. here reset moves the pointer back to the start of the slot
+    [layerSlot->cmdAllocator[frameInFlight] reset]; //cmd allocator is an arena. here reset moves the pointer back to the start
 
-    renderer->frameArenaHead = ((surface.id - 1) * MAX_FRAMES_IN_FLIGHT + slot) * FRAME_ARENA_SIZE;
+    renderer->frameArenaHead = ((surface.id - 1) * MAX_FRAMES_IN_FLIGHT + frameInFlight) * FRAME_ARENA_SIZE;
     renderer->frameArenaEnd = renderer->frameArenaHead + FRAME_ARENA_SIZE;
 
-    [renderer->cmdBuffer beginCommandBufferWithAllocator:layerSlot->cmdAllocator[slot]];
+    [renderer->cmdBuffer beginCommandBufferWithAllocator:layerSlot->cmdAllocator[frameInFlight]];
     layerSlot->inFrame = true;
     return true;
 }
@@ -286,8 +286,8 @@ void renderer_end_frame_and_present(ORenderer *renderer, OSurface surface) {
     // }
 
     renderer->frameIndex++;
-    layerSlot->frameSignal[layerSlot->frameSlot] = renderer->frameIndex;
-    layerSlot->frameSlot = (layerSlot->frameSlot + 1) % MAX_FRAMES_IN_FLIGHT;
+    layerSlot->frameSignal[layerSlot->frameInFlight] = renderer->frameIndex;
+    layerSlot->frameInFlight = (layerSlot->frameInFlight + 1) % MAX_FRAMES_IN_FLIGHT;
     layerSlot->inFrame = false;
 }
 
@@ -499,8 +499,8 @@ void renderer_surface_destroy(ORenderer *renderer, OSurface surface) {
         return;
     }
 
-    u32 lastSlot = (layerSlot->frameSlot + MAX_FRAMES_IN_FLIGHT - 1) % MAX_FRAMES_IN_FLIGHT;
-    if (![renderer->sharedEvent waitUntilSignaledValue:layerSlot->frameSignal[lastSlot] timeoutMS:5000]) {
+    u32 lastFrameInFlight = (layerSlot->frameInFlight + MAX_FRAMES_IN_FLIGHT - 1) % MAX_FRAMES_IN_FLIGHT;
+    if (![renderer->sharedEvent waitUntilSignaledValue:layerSlot->frameSignal[lastFrameInFlight] timeoutMS:5000]) {
         LOG_WARN("GPU has been busy with the surface for longer than 5s\n");
     }
 
