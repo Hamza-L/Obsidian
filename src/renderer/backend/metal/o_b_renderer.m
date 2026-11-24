@@ -71,46 +71,67 @@ static MTLStoreAction mtl_store_action(OStoreOp store) {
     return MTLStoreActionDontCare;
 }
 
+static bool frame_in_flight_is_done(const OLayerSlot *layerSlot, u32 frameInFlight) {
+    return layerSlot->frameEvent.signaledValue >= layerSlot->frameSignal[frameInFlight];
+}
+
+static void image_mark_unfinished_frames(ORenderer *renderer, OImageSlot *imgSlot) {
+    imgSlot->usedByFramesBitset = 0;
+    for (u32 bit = 0; bit < FRAME_BIT_COUNT; bit++) {
+        OLayerSlot *layerSlot = &renderer->layerList.data[bit / MAX_FRAMES_IN_FLIGHT];
+        if (!frame_in_flight_is_done(layerSlot, bit % MAX_FRAMES_IN_FLIGHT)) {
+            imgSlot->usedByFramesBitset |= 1u << bit;
+        }
+    }
+}
+
+static void image_update_frame_usage(ORenderer *renderer, OImageSlot *imgSlot) {
+    for (u32 bit = 0; bit < FRAME_BIT_COUNT; bit++) {
+        OLayerSlot *layerSlot = &renderer->layerList.data[bit / MAX_FRAMES_IN_FLIGHT];
+        if (frame_in_flight_is_done(layerSlot, bit % MAX_FRAMES_IN_FLIGHT)) {
+            imgSlot->usedByFramesBitset &= ~(1u << bit);
+        }
+    }
+}
+
+static bool image_still_in_use(const OImageSlot *imgSlot) {
+    return imgSlot->usedByFramesBitset != 0;
+}
+
+static void image_release(ORenderer *renderer, OImage image) {
+    OImageSlot* imgSlot = memory_pool_item_at(renderer->imagePool, image.id);
+    if (imgSlot) {
+        ((GPU_TEX*)renderer->imageTable.contents)[image.id] = (MTLResourceID){0};
+
+        [renderer->residencySet removeAllocation: imgSlot->gpuData];
+        CFBridgingRelease((__bridge CFTypeRef _Nullable)imgSlot->gpuData);
+    }
+
+    memory_pool_item_recycle(renderer->imagePool, (MHandle){.id = image.id, .age = image.age});
+}
+
 static void drain_all_images(ORenderer* renderer) {
     for (u32 i = 0; i < renderer->retireList.count; i++) {
-        OImage img = renderer->retireList.data[i].image;
-        MHandle h = (MHandle){.id = img.id, .age = img.age};
+        image_release(renderer, renderer->retireList.data[i]);
+    }
+    renderer->retireList.count = 0;
+}
+
+static void drain_retired_images(ORenderer* renderer) {
+    for (u32 i = 0; i < renderer->retireList.count; i++) {
+        OImage img = renderer->retireList.data[i];
         OImageSlot* imgSlot = memory_pool_item_at(renderer->imagePool, img.id);
         if (imgSlot) {
-            [renderer->residencySet removeAllocation: imgSlot->gpuData];
-            CFBridgingRelease((__bridge CFTypeRef _Nullable)imgSlot->gpuData);
+            image_update_frame_usage(renderer, imgSlot);
+            if (image_still_in_use(imgSlot)) continue;
         }
 
-        memory_pool_item_recycle(renderer->imagePool, h);
+        image_release(renderer, img);
 
         //remove from retire list.
         renderer->retireList.data[i] = renderer->retireList.data[renderer->retireList.count - 1];
         renderer->retireList.count--;
         i--;
-    }
-}
-
-static void drain_retired_images(ORenderer* renderer) {
-    for (u32 i = 0; i < renderer->retireList.count; i++) {
-        if (renderer->retireList.data[i].frameAtDeletion < renderer->sharedEvent.signaledValue) {
-            OImage img = renderer->retireList.data[i].image;
-            MHandle h = (MHandle){.id = img.id, .age = img.age};
-            OImageSlot* imgSlot = memory_pool_item_at(renderer->imagePool, img.id);
-            if (imgSlot) {
-                ((GPU_TEX*)renderer->imageTable.contents)[img.id] = (MTLResourceID){0};
-
-                [renderer->residencySet removeAllocation: imgSlot->gpuData];
-                CFBridgingRelease((__bridge CFTypeRef _Nullable)imgSlot->gpuData);
-
-            }
-
-            memory_pool_item_recycle(renderer->imagePool, h);
-
-            //remove from retire list.
-            renderer->retireList.data[i] = renderer->retireList.data[renderer->retireList.count - 1];
-            renderer->retireList.count--;
-            i--;
-        }
     }
 }
 
@@ -200,10 +221,6 @@ ORenderer *renderer_create(ORendererDesc desc) {
         LOG_ERROR("failed to create command buffer"); return NULL;
     }
 
-    if (!(g_renderer.sharedEvent = [g_renderer.device newSharedEvent])) {
-        LOG_ERROR("failed to create shared event object"); return NULL;
-    }
-
     g_renderer.imagePool = memory_pool_create(sizeof(OImageSlot), MAX_TEXTURE_BIND_COUNT);
     g_renderer.shaderPool = memory_pool_create(sizeof(OShaderSlot), MAX_SHADER_COUNT);
     g_renderer.retireList.capacity = INIT_IMAGE_RETIRE_COUNT;
@@ -225,8 +242,12 @@ ORenderer *renderer_create(ORendererDesc desc) {
 }
 
 void renderer_wait_idle(ORenderer *renderer) {
-    if (![renderer->sharedEvent waitUntilSignaledValue:(renderer->frameIndex) timeoutMS:5000]){
-        LOG_WARN("GPU has been busy for longer than 5s\n");
+    for (u32 i = 0; i < MAX_LAYER_COUNT; i++) {
+        OLayerSlot *layerSlot = &renderer->layerList.data[i];
+        u64 lastSubmitted = layerSlot == renderer->currentLayer ? layerSlot->frameNumber - 1 : layerSlot->frameNumber;
+        if (layerSlot->frameEvent && ![layerSlot->frameEvent waitUntilSignaledValue:lastSubmitted timeoutMS:5000]) {
+            LOG_WARN("GPU has been busy for longer than 5s\n");
+        }
     }
 }
 
@@ -244,7 +265,7 @@ bool renderer_begin_frame(ORenderer *renderer, OSurface surface) {
     }
 
     u32 frameInFlight = layerSlot->frameInFlight;
-    if (![renderer->sharedEvent waitUntilSignaledValue:layerSlot->frameSignal[frameInFlight] timeoutMS:1000]){
+    if (![layerSlot->frameEvent waitUntilSignaledValue:layerSlot->frameSignal[frameInFlight] timeoutMS:1000]){
         LOG_WARN("GPU did not finish frame %llu within 1000ms\n", layerSlot->frameSignal[frameInFlight]);
         return false;//return without recording anything new to give it another frame.
     }
@@ -257,6 +278,9 @@ bool renderer_begin_frame(ORenderer *renderer, OSurface surface) {
     renderer->frameArenaEnd = renderer->frameArenaHead + FRAME_ARENA_SIZE;
 
     [renderer->cmdBuffer beginCommandBufferWithAllocator:layerSlot->cmdAllocator[frameInFlight]];
+
+    layerSlot->frameNumber++;
+    layerSlot->frameSignal[frameInFlight] = layerSlot->frameNumber;
     renderer->currentLayer = layerSlot;
     return true;
 }
@@ -273,7 +297,7 @@ void renderer_end_frame_and_present(ORenderer *renderer, OSurface surface) {
     [renderer->residencySet commit];
 
     [renderer->queue commit: &renderer->cmdBuffer count: 1];
-    [renderer->queue signalEvent: renderer->sharedEvent value: renderer->frameIndex + 1];
+    [renderer->queue signalEvent: layerSlot->frameEvent value: layerSlot->frameNumber];
 
     if (layerSlot->currentDrawable) {
         [renderer->queue signalDrawable:layerSlot->currentDrawable];
@@ -281,12 +305,10 @@ void renderer_end_frame_and_present(ORenderer *renderer, OSurface surface) {
         layerSlot->currentDrawable = nil;
     }
 
-    // if (renderer->frameIndex >= 5) {
+    // if (layerSlot->frameNumber >= 5) {
     //     [MTLCaptureManager.sharedCaptureManager stopCapture];
     // }
 
-    renderer->frameIndex++;
-    layerSlot->frameSignal[layerSlot->frameInFlight] = renderer->frameIndex;
     layerSlot->frameInFlight = (layerSlot->frameInFlight + 1) % MAX_FRAMES_IN_FLIGHT;
     renderer->currentLayer = NULL;
 }
@@ -403,11 +425,17 @@ OSurface renderer_surface_create(ORenderer *renderer, void *native_window_handle
     }
 
     OLayerSlot *layerSlot = &renderer->layerList.data[freeID - 1];
-    for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        layerSlot->cmdAllocator[i] = [renderer->device newCommandAllocator];
-        if (!layerSlot->cmdAllocator[i]) {
-            LOG_ERROR("failed to create command allocator for index: %u", i);
-            for (u32 j = 0; j < i; j++) layerSlot->cmdAllocator[j] = nil;
+    if (!layerSlot->frameEvent) {
+        for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+            layerSlot->cmdAllocator[i] = [renderer->device newCommandAllocator];
+            if (!layerSlot->cmdAllocator[i]) {
+                LOG_ERROR("failed to create command allocator for index: %u", i);
+                return (OSurface){0};
+            }
+        }
+
+        if (!(layerSlot->frameEvent = [renderer->device newSharedEvent])) {
+            LOG_ERROR("failed to create shared event object");
             return (OSurface){0};
         }
     }
@@ -480,21 +508,26 @@ void renderer_image_destroy(ORenderer *renderer, OImage image) {
     if(HANDLE_IS_NULL(image)) return;
 
     MHandle h = (MHandle){.id = image.id, .age = image.age};
-    if (memory_pool_item_invalidate(renderer->imagePool, h)) {
-        if (renderer->retireList.count >= renderer->retireList.capacity) {
-            void* newData = realloc(renderer->retireList.data, renderer->retireList.capacity * 2 * sizeof(*renderer->retireList.data));
-            if (!newData) {
-                LOG_ERROR("renderer_image_destroy(): failed to reallocate retire list.");
-                return;
-            }
-            renderer->retireList.data = newData;
-            renderer->retireList.capacity *= 2;
-        }
+    OImageSlot* imgSlot = memory_pool_item_get(renderer->imagePool, h);
+    if (!imgSlot || !memory_pool_item_invalidate(renderer->imagePool, h)) return;
 
-        renderer->retireList.data[renderer->retireList.count].image = image;
-        renderer->retireList.data[renderer->retireList.count].frameAtDeletion = renderer->frameIndex;
-        renderer->retireList.count++;
+    image_mark_unfinished_frames(renderer, imgSlot);
+    if (!image_still_in_use(imgSlot)) {
+        image_release(renderer, image);
+        return;
     }
+
+    if (renderer->retireList.count >= renderer->retireList.capacity) {
+        void* newData = realloc(renderer->retireList.data, renderer->retireList.capacity * 2 * sizeof(*renderer->retireList.data));
+        if (!newData) {
+            LOG_ERROR("renderer_image_destroy(): failed to reallocate retire list.");
+            return;
+        }
+        renderer->retireList.data = newData;
+        renderer->retireList.capacity *= 2;
+    }
+
+    renderer->retireList.data[renderer->retireList.count++] = image;
 }
 
 void renderer_surface_destroy(ORenderer *renderer, OSurface surface) {
@@ -508,16 +541,12 @@ void renderer_surface_destroy(ORenderer *renderer, OSurface surface) {
         return;
     }
 
-    u32 lastFrameInFlight = (layerSlot->frameInFlight + MAX_FRAMES_IN_FLIGHT - 1) % MAX_FRAMES_IN_FLIGHT;
-    if (![renderer->sharedEvent waitUntilSignaledValue:layerSlot->frameSignal[lastFrameInFlight] timeoutMS:5000]) {
+    if (![layerSlot->frameEvent waitUntilSignaledValue:layerSlot->frameNumber timeoutMS:5000]) {
         LOG_WARN("GPU has been busy with the surface for longer than 5s\n");
     }
 
     [renderer->queue removeResidencySet:layerSlot->layer.residencySet];
 
-    for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        layerSlot->cmdAllocator[i] = nil;
-    }
     layerSlot->layer = nil;
     layerSlot->view = nil;
     layerSlot->age++;
@@ -535,9 +564,9 @@ void renderer_destroy(ORenderer *renderer){
         for (u32 j = 0; j < MAX_FRAMES_IN_FLIGHT; j++) {
             renderer->layerList.data[i].cmdAllocator[j] = nil;
         }
+        renderer->layerList.data[i].frameEvent = nil;
     }
 
-    renderer->sharedEvent = nil;
     renderer->cmdBuffer = nil;
     renderer->imageTable = nil;
     renderer->frameArena = nil;

@@ -6,6 +6,11 @@
 
 #define MAX_LAYER_COUNT 8
 
+#define FRAME_BIT_COUNT (MAX_LAYER_COUNT * MAX_FRAMES_IN_FLIGHT)
+#if FRAME_BIT_COUNT > 32
+#error "OImageSlot.usedByFramesBitset has only 32 bits"
+#endif
+
 #define INIT_IMAGE_RETIRE_COUNT 64
 #define MAX_TEXTURE_BIND_COUNT 256
 

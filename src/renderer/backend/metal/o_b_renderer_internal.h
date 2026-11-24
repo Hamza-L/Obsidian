@@ -21,6 +21,7 @@ typedef struct {
 typedef struct {
     OImageDesc desc;
     __unsafe_unretained id<MTLTexture> gpuData;
+    uint32_t usedByFramesBitset;
 } OImageSlot;
 
 typedef struct {
@@ -36,8 +37,12 @@ typedef struct {
     NSView *view;
     CAMetalLayer *layer;
     id<CAMetalDrawable> currentDrawable;
+
     id<MTL4CommandAllocator> cmdAllocator[MAX_FRAMES_IN_FLIGHT]; //memory that holds the commands
-    uint64_t frameSignal[MAX_FRAMES_IN_FLIGHT]; //sharedEvent value reached once the frame recorded with cmdAllocator[i] is done
+    id<MTLSharedEvent> frameEvent; //sync object
+
+    uint64_t frameSignal[MAX_FRAMES_IN_FLIGHT]; //frameEvent value reached once the frame recorded with cmdAllocator[i] is done
+    uint64_t frameNumber;
     uint32_t frameInFlight;
     uint32_t age;
 } OLayerSlot;
@@ -49,10 +54,6 @@ struct ORenderer{
     id<MTLResidencySet> residencySet;
 
     id<MTL4CommandBuffer> cmdBuffer; //where we record the commands and commit them to the queue
-    id<MTLSharedEvent> sharedEvent; //sync object
-
-    uint64_t frameIndex;
-
     id<MTL4RenderCommandEncoder> renderEncoder;
 
     struct {
@@ -65,7 +66,7 @@ struct ORenderer{
     MPool shaderPool;
 
     struct {
-        struct { OImage image; uint64_t frameAtDeletion;} *data ;
+        OImage *data;
         uint32_t count;
         uint32_t capacity;
     } retireList;
